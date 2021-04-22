@@ -10,7 +10,7 @@
 
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Polyhedron_3.h>
+#include <CGAL/Surface_Mesh.h>
 #include <CGAL/Side_of_triangle_mesh.h>
 #include <CGAL/Triangulation_3.h>
 #include <CGAL/algorithm.h>
@@ -18,12 +18,13 @@
 #include <CGAL/convex_hull_3.h>
 
 using K = CGAL::Exact_predicates_inexact_constructions_kernel;
-using Polyhedron_3 = CGAL::Polyhedron_3<K>;
 using Point_3 = K::Point_3;
-using Primitive = CGAL::AABB_face_graph_triangle_primitive<Polyhedron_3>;
+using Surface_Mesh = CGAL::Surface_mesh<Point_3>;
+using Primitive = CGAL::AABB_face_graph_triangle_primitive<Surface_Mesh>;
 using Traits = CGAL::AABB_traits<K, Primitive>;
 using Tree = CGAL::AABB_tree<Traits>;
-using Point_inside = CGAL::Side_of_triangle_mesh<Polyhedron_3, K>;
+using Point_inside = CGAL::Side_of_triangle_mesh<Surface_Mesh, K>;
+
 
 struct bounds {
   static constexpr std::pair<float, float> INIT = {
@@ -33,7 +34,7 @@ struct bounds {
 };
 
 struct points_checker {
-  points_checker(const Polyhedron_3 &poly)
+  points_checker(const Surface_Mesh &poly)
       : tree(faces(poly).first, faces(poly).second, poly), inside_tester(tree)
   {
     tree.accelerate_distance_queries();
@@ -124,7 +125,7 @@ std::pair<std::vector<Point_3>, bounds> get_binding_site(
 }
 
 template <class CBFun>
-void for_point_in_poly(const Polyhedron_3 &poly,
+void for_point_in_poly(const Surface_Mesh &poly,
                        const bounds &bounds,
                        float spacing,
                        CBFun &&callback)
@@ -143,7 +144,7 @@ void for_point_in_poly(const Polyhedron_3 &poly,
 }
 
 int gen_grid_pdb(std::ostream &out,
-                 const Polyhedron_3 &poly,
+                 const Surface_Mesh &poly,
                  const bounds &bounds,
                  float spacing)
 {
@@ -227,7 +228,7 @@ z    {:.3f}  {:.3f}
                              bounds.z.second);
   }
 
-  Polyhedron_3 poly;
+  Surface_Mesh poly;
   CGAL::convex_hull_3(points.begin(), points.end(), poly);
 
   int num_grid_points = 0;
