@@ -89,23 +89,35 @@ pdb parse_pdb(std::ifstream &ifs)
 
 std::pair<std::vector<Point_3>, bounds> get_binding_site(
     const pdb &pdb,
-    const std::vector<int> &atoms)
+    const std::vector<int> &residues)
 {
   std::vector<Point_3> points;
   bounds bounds;
 
-  for (int id : atoms) {
-    const auto &pos = pdb.atoms[id - 1].pos;
-    points.push_back(pos);
 
-    bounds.x.first = std::min<float>(bounds.x.first, pos.x());
-    bounds.x.second = std::max<float>(bounds.x.second, pos.x());
+  struct Comp {
+    bool operator()(const pdb_entry &s, int i) const { return s.residue_id < i; }
+    bool operator()(int i, const pdb_entry &s) const { return i < s.residue_id; }
+  };
 
-    bounds.y.first = std::min<float>(bounds.y.first, pos.y());
-    bounds.y.second = std::max<float>(bounds.y.second, pos.y());
+  for (int id : residues) {
+    auto [begin, end] =
+        std::equal_range(pdb.atoms.begin(), pdb.atoms.end(), id, Comp{});
 
-    bounds.z.first = std::min<float>(bounds.z.first, pos.z());
-    bounds.z.second = std::max<float>(bounds.z.second, pos.z());
+
+    for (auto it = begin; it != end; ++it) {
+      const auto &pos = it->pos;
+      points.push_back(pos);
+
+      bounds.x.first = std::min<float>(bounds.x.first, pos.x());
+      bounds.x.second = std::max<float>(bounds.x.second, pos.x());
+
+      bounds.y.first = std::min<float>(bounds.y.first, pos.y());
+      bounds.y.second = std::max<float>(bounds.y.second, pos.y());
+
+      bounds.z.first = std::min<float>(bounds.z.first, pos.z());
+      bounds.z.second = std::max<float>(bounds.z.second, pos.z());
+    }
   }
 
   return {points, bounds};
@@ -162,7 +174,7 @@ int main(int argc, char *argv[])
     ("o,out_file", "output file (stdout if omitted)",cxxopts::value<std::string>()->default_value(""))
     ("s,spacing", "grid spacing", cxxopts::value<float>()->default_value("1.0f"))
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
-    ("a,site_atoms", "list of atom ids that make up the binding site", cxxopts::value<std::vector<int>>());
+    ("r,site_residues", "list of atom ids that make up the binding site", cxxopts::value<std::vector<int>>());
   // clang-format on
 
   opts.parse_positional("in_file");
@@ -175,7 +187,7 @@ int main(int argc, char *argv[])
     return -1;
   }
 
-  if (parsed_opts.count("site_atoms") == 0) {
+  if (parsed_opts.count("site_residues") == 0) {
     std::cerr << "ERROR: You must specify the atoms of the binding site\n";
     std::cout << opts.help();
     return -1;
@@ -185,7 +197,7 @@ int main(int argc, char *argv[])
   auto out_file = parsed_opts["out_file"].as<std::string>();
   auto spacing = parsed_opts["spacing"].as<float>();
   bool verbose = parsed_opts["verbose"].as<bool>();
-  auto atoms = parsed_opts["site_atoms"].as<std::vector<int>>();
+  auto residues = parsed_opts["site_residues"].as<std::vector<int>>();
 
   auto pdb_file = std::ifstream(in_file);
   if (!pdb_file.is_open()) {
@@ -194,7 +206,7 @@ int main(int argc, char *argv[])
   }
 
   auto pdb = parse_pdb(pdb_file);
-  auto [points, bounds] = get_binding_site(pdb, atoms);
+  auto [points, bounds] = get_binding_site(pdb, residues);
 
   if (verbose) {
     std::cout << fmt::format("Parsed pdb file '{}': {} atoms\n", in_file,
