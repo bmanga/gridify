@@ -1,15 +1,16 @@
 #pragma once
 
+#include <cassert>
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
-#include <cassert>
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <nlohmann/json.hpp>
 
 #include "aabb_tree.hpp"
 
-
+using json = nlohmann::json;
 using K = CGAL::Exact_predicates_inexact_constructions_kernel;
 using Point_3 = K::Point_3;
 using Vector_3 = K::Vector_3;
@@ -20,12 +21,11 @@ using Traits = CGAL::AABB_traits<K, Primitive>;
 using Tree = CGAL::AABB_tree<Traits>;
 using Point_inside = CGAL::Side_of_triangle_mesh<Surface_Mesh, K>;
 
-
-
 struct pdb_entry {
   Point_3 pos;
   std::string residue;
   std::string atom;
+  int atom_id;
   int residue_id;
 };
 
@@ -39,11 +39,55 @@ struct bounds {
 
   std::pair<float, float> x = INIT, y = INIT, z = INIT;
 
-  bool is_inside(Point_3 point) const {
+  bool is_inside(Point_3 point) const
+  {
     return point.x() <= x.second && point.x() >= x.first &&
            point.y() <= y.second && point.y() >= y.first &&
            point.z() <= z.second && point.z() >= z.first;
   }
+};
+
+struct radius_matcher {
+  radius_matcher(std::istream &descriptor)
+  {
+    if (!descriptor.good()) {
+      fmt::print("WARN: no radius file found (radii.json).\n");
+      radii["default"] = 2;
+    }
+    else {
+      descriptor >> radii;
+    }
+  }
+
+  double radius(const pdb_entry &entry) const
+  {
+    const auto &resid = entry.residue;
+    auto atom = entry.atom;
+    while (std::isdigit(atom.back())) {
+      atom.pop_back();
+    }
+
+    if (radii.contains(resid)) {
+      if (radii[resid].contains(atom)) {
+        return radii[resid][atom].get<double>();
+      }
+    }
+    while (atom.size() > 0) {
+      if (radii["defaults"].contains(atom)) {
+        return radii["defaults"][atom].get<double>();
+      }
+      atom.pop_back();
+    }
+
+    auto def = radii["default"].get<double>();
+    fmt::print(
+        "WARN: no suitable radius found for atom {} ({}.{}): Using specified "
+        "default of {}.\n",
+        entry.atom_id, entry.atom, entry.residue, def);
+    return def;
+  }
+
+  json radii;
 };
 
 struct points_checker {
@@ -62,7 +106,8 @@ struct points_checker {
     return inside_poly;
   }
 
-  bool has_no_atomic_clashes(Point_3 point) const {
+  bool has_no_atomic_clashes(Point_3 point) const
+  {
     auto intersections =
         opt_atoms_tree->query(abt::point3d(point.x(), point.y(), point.z()));
     if (intersections.empty()) {
@@ -81,13 +126,16 @@ struct points_checker {
     return true;
   }
 
-  void enable_check_atoms(const pdb& pdb, const bounds& bs_bounds) {
+  void enable_check_atoms(const pdb &pdb,
+                          const radius_matcher &radius_matcher,
+                          const bounds &bs_bounds)
+  {
     abt::tree3d atoms_tree;
     int cnt = 0;
 
     for (const auto &atom : pdb.atoms) {
       // TODO: use csv.
-      float radius = 2;
+      float radius = radius_matcher.radius(atom);
       auto pos = atom.pos;
       if (bs_bounds.is_inside(pos) && is_inside(pos)) {
         auto pos = atom.pos;

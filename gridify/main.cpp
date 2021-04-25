@@ -9,15 +9,14 @@
 #include <cxxopts.hpp>
 
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
-#include <CGAL/Surface_mesh.h>
 #include <CGAL/Side_of_triangle_mesh.h>
+#include <CGAL/Surface_mesh.h>
 #include <CGAL/Triangulation_3.h>
 #include <CGAL/algorithm.h>
 #include <CGAL/convex_hull_3.h>
 
-#include "common.hpp"
 #include "aabb_tree.hpp"
-
+#include "common.hpp"
 
 pdb parse_pdb(std::ifstream &ifs)
 {
@@ -26,12 +25,16 @@ pdb parse_pdb(std::ifstream &ifs)
   std::string str;
 
   while (std::getline(ifs, str)) {
+    if (str == "END") {
+      break;
+    }
     std::istringstream iss(str);
     std::string unused, atom, residue;
     int residue_id;
+    int atom_id;
     // NOTE: We could read lines at specific offsets, but I think this is more
     // robust.
-    iss >> unused >> unused >> atom >> residue;
+    iss >> unused >> atom_id >> atom >> residue;
     iss >> residue_id;
     if (iss.fail()) {
       iss.clear();
@@ -41,7 +44,7 @@ pdb parse_pdb(std::ifstream &ifs)
 
     float x, y, z;
     iss >> x >> y >> z;
-    auto entry = pdb_entry{{x, y, z}, residue, atom, residue_id};
+    auto entry = pdb_entry{{x, y, z}, residue, atom, atom_id, residue_id};
     result.atoms.push_back(std::move(entry));
   }
   return result;
@@ -54,16 +57,20 @@ std::pair<std::vector<Point_3>, bounds> get_binding_site(
   std::vector<Point_3> points;
   bounds bounds;
 
-
   struct Comp {
-    bool operator()(const pdb_entry &s, int i) const { return s.residue_id < i; }
-    bool operator()(int i, const pdb_entry &s) const { return i < s.residue_id; }
+    bool operator()(const pdb_entry &s, int i) const
+    {
+      return s.residue_id < i;
+    }
+    bool operator()(int i, const pdb_entry &s) const
+    {
+      return i < s.residue_id;
+    }
   };
 
   for (int id : residues) {
     auto [begin, end] =
         std::equal_range(pdb.atoms.begin(), pdb.atoms.end(), id, Comp{});
-
 
     for (auto it = begin; it != end; ++it) {
       const auto &pos = it->pos;
@@ -85,7 +92,7 @@ std::pair<std::vector<Point_3>, bounds> get_binding_site(
 
 template <class CBFun>
 void for_point_in_poly(const Surface_Mesh &poly,
-  const points_checker &checker,
+                       const points_checker &checker,
                        const bounds &bounds,
                        float spacing,
                        CBFun &&callback)
@@ -103,7 +110,7 @@ void for_point_in_poly(const Surface_Mesh &poly,
 }
 
 int gen_grid_pdb(std::ostream &out,
-  const points_checker &checker,
+                 const points_checker &checker,
                  const Surface_Mesh &poly,
                  const bounds &bounds,
                  float spacing)
@@ -123,7 +130,6 @@ int gen_grid_pdb(std::ostream &out,
   out << "END\n";
   return cnt;
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -194,10 +200,11 @@ z    {:.3f}  {:.3f}
   Surface_Mesh poly;
   CGAL::convex_hull_3(points.begin(), points.end(), poly);
 
-
   auto checker = points_checker(poly);
   if (check_atoms) {
-    checker.enable_check_atoms(pdb, bounds);
+    auto radii_file = std::ifstream("radii.json");
+    auto radmatch = radius_matcher(radii_file);
+    checker.enable_check_atoms(pdb, radmatch, bounds);
   }
   int num_grid_points = 0;
 

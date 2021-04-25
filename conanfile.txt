@@ -2,6 +2,7 @@
 cgal/5.2.1
 fmt/7.1.3
 cxxopts/2.2.1
+nlohmann_json/3.9.1
 
 [generators]
 cmake_find_package_multi
