@@ -9,56 +9,15 @@
 #include <cxxopts.hpp>
 
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Surface_Mesh.h>
 #include <CGAL/Side_of_triangle_mesh.h>
 #include <CGAL/Triangulation_3.h>
 #include <CGAL/algorithm.h>
-#include <CGAL/boost/graph/graph_traits_Polyhedron_3.h>
 #include <CGAL/convex_hull_3.h>
 
-using K = CGAL::Exact_predicates_inexact_constructions_kernel;
-using Point_3 = K::Point_3;
-using Surface_Mesh = CGAL::Surface_mesh<Point_3>;
-using Primitive = CGAL::AABB_face_graph_triangle_primitive<Surface_Mesh>;
-using Traits = CGAL::AABB_traits<K, Primitive>;
-using Tree = CGAL::AABB_tree<Traits>;
-using Point_inside = CGAL::Side_of_triangle_mesh<Surface_Mesh, K>;
+#include "common.hpp"
+#include "aabb_tree.hpp"
 
-
-struct bounds {
-  static constexpr std::pair<float, float> INIT = {
-      std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest()};
-
-  std::pair<float, float> x = INIT, y = INIT, z = INIT;
-};
-
-struct points_checker {
-  points_checker(const Surface_Mesh &poly)
-      : tree(faces(poly).first, faces(poly).second, poly), inside_tester(tree)
-  {
-    tree.accelerate_distance_queries();
-  }
-
-  bool is_inside(Point_3 point) const
-  {
-    return inside_tester(point) != CGAL::ON_UNBOUNDED_SIDE;
-  }
-
-  Tree tree;
-  Point_inside inside_tester;
-};
-
-struct pdb_entry {
-  Point_3 pos;
-  std::string residue;
-  std::string atom;
-  int residue_id;
-};
-
-struct pdb {
-  std::vector<pdb_entry> atoms;
-};
 
 pdb parse_pdb(std::ifstream &ifs)
 {
@@ -126,11 +85,11 @@ std::pair<std::vector<Point_3>, bounds> get_binding_site(
 
 template <class CBFun>
 void for_point_in_poly(const Surface_Mesh &poly,
+  const points_checker &checker,
                        const bounds &bounds,
                        float spacing,
                        CBFun &&callback)
 {
-  auto checker = points_checker(poly);
   for (auto [z1, z2] = bounds.z; z1 <= z2; z1 += spacing) {
     for (auto [y1, y2] = bounds.y; y1 <= y2; y1 += spacing) {
       for (auto [x1, x2] = bounds.x; x1 <= x2; x1 += spacing) {
@@ -144,6 +103,7 @@ void for_point_in_poly(const Surface_Mesh &poly,
 }
 
 int gen_grid_pdb(std::ostream &out,
+  const points_checker &checker,
                  const Surface_Mesh &poly,
                  const bounds &bounds,
                  float spacing)
@@ -154,7 +114,7 @@ int gen_grid_pdb(std::ostream &out,
   int cnt = 0;
   int resID = 0;
 
-  for_point_in_poly(poly, bounds, spacing, [&](const Point_3 &pt) {
+  for_point_in_poly(poly, checker, bounds, spacing, [&](const Point_3 &pt) {
     out << fmt::format(
         "HETATM{:>5}  C   PTH {:>5}{:>12.3f}{:>8.3f}{:>8.3f}  0.00  0.00\n",
         ++cnt, ++resID, pt.x(), pt.y(), pt.z());
@@ -163,6 +123,7 @@ int gen_grid_pdb(std::ostream &out,
   out << "END\n";
   return cnt;
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -175,7 +136,8 @@ int main(int argc, char *argv[])
     ("o,out_file", "output file (stdout if omitted)",cxxopts::value<std::string>()->default_value(""))
     ("s,spacing", "grid spacing", cxxopts::value<float>()->default_value("1.0f"))
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
-    ("r,site_residues", "list of atom ids that make up the binding site", cxxopts::value<std::vector<int>>());
+    ("r,site_residues", "list of atom ids that make up the binding site", cxxopts::value<std::vector<int>>())
+    ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"));
   // clang-format on
 
   opts.parse_positional("in_file");
@@ -199,6 +161,7 @@ int main(int argc, char *argv[])
   auto spacing = parsed_opts["spacing"].as<float>();
   bool verbose = parsed_opts["verbose"].as<bool>();
   auto residues = parsed_opts["site_residues"].as<std::vector<int>>();
+  bool check_atoms = parsed_opts["rm_atom_overlaps"].as<bool>();
 
   auto pdb_file = std::ifstream(in_file);
   if (!pdb_file.is_open()) {
@@ -231,14 +194,19 @@ z    {:.3f}  {:.3f}
   Surface_Mesh poly;
   CGAL::convex_hull_3(points.begin(), points.end(), poly);
 
+
+  auto checker = points_checker(poly);
+  if (check_atoms) {
+    checker.enable_check_atoms(pdb, bounds);
+  }
   int num_grid_points = 0;
 
   if (out_file.empty()) {
-    num_grid_points = gen_grid_pdb(std::cout, poly, bounds, spacing);
+    num_grid_points = gen_grid_pdb(std::cout, checker, poly, bounds, spacing);
   }
   else {
     auto ofs = std::ofstream(out_file);
-    num_grid_points = gen_grid_pdb(ofs, poly, bounds, spacing);
+    num_grid_points = gen_grid_pdb(ofs, checker, poly, bounds, spacing);
   }
 
   if (verbose) {
