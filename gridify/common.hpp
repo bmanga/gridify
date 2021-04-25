@@ -21,6 +21,16 @@ using Traits = CGAL::AABB_traits<K, Primitive>;
 using Tree = CGAL::AABB_tree<Traits>;
 using Point_inside = CGAL::Side_of_triangle_mesh<Surface_Mesh, K>;
 
+extern bool g_verbose;
+
+template <class... Ts>
+void vlog(Ts &&...ts)
+{
+  if (g_verbose) {
+    fmt::print(std::forward<Ts>(ts)...);
+  }
+}
+
 struct pdb_entry {
   Point_3 pos;
   std::string residue;
@@ -67,21 +77,33 @@ struct radius_matcher {
       atom.pop_back();
     }
 
+    auto vlog_radius = [&entry, &atom](const char *where, double radius) {
+      vlog(
+          "RADIUS - using {} value for atom {} ({}.{}, using atomname {}) "
+          "= {}\n",
+          where, entry.atom_id, entry.residue, entry.atom, atom, radius);
+    };
+
     if (radii.contains(resid)) {
       if (radii[resid].contains(atom)) {
-        return radii[resid][atom].get<double>();
+        auto radius = radii[resid][atom].get<double>();
+        vlog_radius("residue", radius);
+        return radius;
       }
     }
     while (atom.size() > 0) {
       if (radii["defaults"].contains(atom)) {
-        return radii["defaults"][atom].get<double>();
+        auto radius = radii["defaults"][atom].get<double>();
+        vlog_radius("defaults", radius);
+        return radius;
       }
       atom.pop_back();
     }
 
     auto def = radii["default"].get<double>();
-    fmt::print(
-        "WARN: no suitable radius found for atom {} ({}.{}): Using specified "
+    vlog(
+        "WARN: RADIUS - no suitable radius found for atom {} ({}.{}): Using "
+        "specified "
         "default of {}.\n",
         entry.atom_id, entry.atom, entry.residue, def);
     return def;

@@ -18,6 +18,8 @@
 #include "aabb_tree.hpp"
 #include "common.hpp"
 
+bool g_verbose = false;
+
 pdb parse_pdb(std::ifstream &ifs)
 {
   pdb result;
@@ -165,7 +167,7 @@ int main(int argc, char *argv[])
   auto in_file = parsed_opts["in_file"].as<std::string>();
   auto out_file = parsed_opts["out_file"].as<std::string>();
   auto spacing = parsed_opts["spacing"].as<float>();
-  bool verbose = parsed_opts["verbose"].as<bool>();
+  g_verbose = parsed_opts["verbose"].as<bool>();
   auto residues = parsed_opts["site_residues"].as<std::vector<int>>();
   bool check_atoms = parsed_opts["rm_atom_overlaps"].as<bool>();
 
@@ -178,7 +180,7 @@ int main(int argc, char *argv[])
   auto pdb = parse_pdb(pdb_file);
   auto [points, bounds] = get_binding_site(pdb, residues);
 
-  if (verbose) {
+  if (g_verbose) {
     std::cout << fmt::format("Parsed pdb file '{}': {} atoms\n", in_file,
                              pdb.atoms.size());
     std::cout << fmt::format("Binding site info: Num residues {}, : {} atoms\n",
@@ -216,7 +218,7 @@ z    {:.3f}  {:.3f}
     num_grid_points = gen_grid_pdb(ofs, checker, poly, bounds, spacing);
   }
 
-  if (verbose) {
+  if (g_verbose) {
     std::cout << fmt::format(
         "Generated grid to output '{}': {} grid points with spacing of "
         "{:.4f}\n",
