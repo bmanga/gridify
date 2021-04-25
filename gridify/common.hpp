@@ -158,6 +158,10 @@ struct points_checker {
     for (const auto &atom : pdb.atoms) {
       // TODO: use csv.
       float radius = radius_matcher.radius(atom);
+      if (radius == 0) {
+        // Radius of 0 means the atom can be ignored.
+        continue;
+      }
       auto pos = atom.pos;
       if (bs_bounds.is_inside(pos) && is_inside(pos)) {
         auto pos = atom.pos;
