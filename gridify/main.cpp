@@ -9,7 +9,7 @@
 #include <cxxopts.hpp>
 
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
-#include <CGAL/Surface_Mesh.h>
+#include <CGAL/Surface_mesh.h>
 #include <CGAL/Side_of_triangle_mesh.h>
 #include <CGAL/Triangulation_3.h>
 #include <CGAL/algorithm.h>
@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
     ("o,out_file", "output file (stdout if omitted)",cxxopts::value<std::string>()->default_value(""))
     ("s,spacing", "grid spacing", cxxopts::value<float>()->default_value("1.0f"))
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
-    ("r,site_residues", "list of atom ids that make up the binding site", cxxopts::value<std::vector<int>>())
+    ("r,site_residues", "list of residues ids that make up the binding site", cxxopts::value<std::vector<int>>())
     ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"));
   // clang-format on
 
