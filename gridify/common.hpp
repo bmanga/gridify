@@ -119,24 +119,33 @@ struct points_checker {
     tree.accelerate_distance_queries();
   }
 
-  bool is_inside(Point_3 point) const
+  bool is_inside_ch(Point_3 point) const
   {
-    bool inside_poly = inside_tester(point) != CGAL::ON_UNBOUNDED_SIDE;
-    if (inside_poly && opt_atoms_tree.has_value()) {
-      return has_no_atomic_clashes(point);
-    }
-    return inside_poly;
+    return inside_tester(point) != CGAL::ON_UNBOUNDED_SIDE;
   }
 
-  bool has_no_atomic_clashes(Point_3 point) const
+  bool has_no_atomic_clashes(Point_3 point, float radius) const
   {
-    auto intersections =
-        opt_atoms_tree->query(abt::point3d(point.x(), point.y(), point.z()));
+    if (!opt_atoms_tree.has_value()) {
+      return true;
+    }
+    auto &atoms_tree = opt_atoms_tree.value();
+
+    std::vector<unsigned> intersections;
+
+    auto center = abt::point3d(point.x(), point.y(), point.z());
+    if (radius == 0) {
+      intersections = atoms_tree.get_overlaps(center);
+    }
+    else {
+      intersections =
+          atoms_tree.get_overlaps(abt::aabb3d::of_sphere(center, radius));
+    }
     if (intersections.empty()) {
       return true;
     }
     for (const auto id : intersections) {
-      auto bb = opt_atoms_tree->getAABB(id);
+      auto bb = opt_atoms_tree->get_aabb(id);
       auto radius = bb.upperBound.x() - bb.centre.x();
       auto dist_to_center = CGAL::squared_distance(
           point, Point_3(bb.centre.x(), bb.centre.y(), bb.centre.z()));
@@ -163,10 +172,8 @@ struct points_checker {
         continue;
       }
       auto pos = atom.pos;
-      if (bs_bounds.is_inside(pos) && is_inside(pos)) {
-        auto pos = atom.pos;
-        atoms_tree.insertParticle(++cnt, {pos.x(), pos.y(), pos.z()}, radius);
-      }
+      atoms_tree.insert(
+          ++cnt, abt::aabb3d::of_sphere({pos.x(), pos.y(), pos.z()}, radius));
     }
     opt_atoms_tree = std::move(atoms_tree);
   }

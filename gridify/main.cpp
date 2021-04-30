@@ -97,13 +97,15 @@ void for_point_in_poly(const Surface_Mesh &poly,
                        const points_checker &checker,
                        const bounds &bounds,
                        float spacing,
+                       float point_radius,
                        CBFun &&callback)
 {
   for (auto [z1, z2] = bounds.z; z1 <= z2; z1 += spacing) {
     for (auto [y1, y2] = bounds.y; y1 <= y2; y1 += spacing) {
       for (auto [x1, x2] = bounds.x; x1 <= x2; x1 += spacing) {
         auto pt = Point_3(x1, y1, z1);
-        if (checker.is_inside(pt)) {
+        if (checker.is_inside_ch(pt) &&
+            checker.has_no_atomic_clashes(pt, point_radius)) {
           callback(pt);
         }
       }
@@ -115,7 +117,8 @@ int gen_grid_pdb(std::ostream &out,
                  const points_checker &checker,
                  const Surface_Mesh &poly,
                  const bounds &bounds,
-                 float spacing)
+                 float spacing,
+                 float pt_radius)
 {
   out << "CRYST1    0.000    0.000    0.000  90.00  90.00  90.00 P 1           "
          "1\n";
@@ -123,11 +126,12 @@ int gen_grid_pdb(std::ostream &out,
   int cnt = 0;
   int resID = 0;
 
-  for_point_in_poly(poly, checker, bounds, spacing, [&](const Point_3 &pt) {
-    out << fmt::format(
-        "HETATM{:>5}  C   PTH {:>5}{:>12.3f}{:>8.3f}{:>8.3f}  0.00  0.00\n",
-        ++cnt, ++resID, pt.x(), pt.y(), pt.z());
-  });
+  for_point_in_poly(
+      poly, checker, bounds, spacing, pt_radius, [&](const Point_3 &pt) {
+        out << fmt::format(
+            "HETATM{:>5}  C   PTH {:>5}{:>12.3f}{:>8.3f}{:>8.3f}  0.00  0.00\n",
+            ++cnt, ++resID, pt.x(), pt.y(), pt.z());
+      });
 
   out << "END\n";
   return cnt;
@@ -145,7 +149,8 @@ int main(int argc, char *argv[])
     ("s,spacing", "grid spacing", cxxopts::value<float>()->default_value("1.0f"))
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
     ("r,site_residues", "list of residues ids that make up the binding site", cxxopts::value<std::vector<int>>())
-    ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"));
+    ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"))
+    ("point_radius", "if not 0, the grid points are considered spheres with the given radius", cxxopts::value<double>()->default_value("0"));
   // clang-format on
 
   opts.parse_positional("in_file");
@@ -170,6 +175,7 @@ int main(int argc, char *argv[])
   g_verbose = parsed_opts["verbose"].as<bool>();
   auto residues = parsed_opts["site_residues"].as<std::vector<int>>();
   bool check_atoms = parsed_opts["rm_atom_overlaps"].as<bool>();
+  int point_radius = parsed_opts["point_radius"].as<double>();
 
   auto pdb_file = std::ifstream(in_file);
   if (!pdb_file.is_open()) {
@@ -211,11 +217,13 @@ z    {:.3f}  {:.3f}
   int num_grid_points = 0;
 
   if (out_file.empty()) {
-    num_grid_points = gen_grid_pdb(std::cout, checker, poly, bounds, spacing);
+    num_grid_points =
+        gen_grid_pdb(std::cout, checker, poly, bounds, spacing, point_radius);
   }
   else {
     auto ofs = std::ofstream(out_file);
-    num_grid_points = gen_grid_pdb(ofs, checker, poly, bounds, spacing);
+    num_grid_points =
+        gen_grid_pdb(ofs, checker, poly, bounds, spacing, point_radius);
   }
 
   if (g_verbose) {

@@ -63,7 +63,7 @@ struct point {
   value_type &operator[](size_t idx) { return values[idx]; }
   const value_type &operator[](size_t idx) const { return values[idx]; }
 
-  std::array<value_type, Dim> values;
+  std::array<value_type, Dim> values = {};
 };
 /*! \brief The axis-aligned bounding box object.
 
@@ -94,12 +94,22 @@ class aabb {
   aabb(const point &lower_bound, const point &upper_bound)
       : lowerBound(lower_bound), upperBound(upper_bound)
   {
-    surfaceArea = computeSurfaceArea();
-    centre = computeCentre();
+    surfaceArea = compute_surface_area();
+    centre = compute_center();
+  }
+
+  static aabb of_sphere(const point &center, value_type radius)
+  {
+    point lb, ub;
+    for (unsigned int i = 0; i < Dim; i++) {
+      lb[i] = center[i] - radius;
+      ub[i] = center[i] + radius;
+    }
+    return {lb, ub};
   }
 
   /// Compute the surface area of the box.
-  value_type computeSurfaceArea() const
+  value_type compute_surface_area() const
   {
     // Sum of "area" of all the sides.
     value_type sum = 0;
@@ -126,7 +136,7 @@ class aabb {
   }
 
   /// Get the surface area of the box.
-  value_type getSurfaceArea() const { return surfaceArea; }
+  value_type get_surface_area() const { return surfaceArea; }
 
   //! Merge two AABBs into this one.
   /*! \param aabb1
@@ -142,8 +152,8 @@ class aabb {
       upperBound[i] = std::max(aabb1.upperBound[i], aabb2.upperBound[i]);
     }
 
-    surfaceArea = computeSurfaceArea();
-    centre = computeCentre();
+    surfaceArea = compute_surface_area();
+    centre = compute_center();
   }
 
   //! Test whether the AABB is contained within this one.
@@ -231,7 +241,7 @@ class aabb {
   /*! \returns
           The position vector of the AABB centre.
    */
-  point computeCentre()
+  point compute_center()
   {
     point center;
 
@@ -251,8 +261,10 @@ class aabb {
   point centre;
 
   /// The AABB's surface area.
-  value_type surfaceArea;
+  value_type surfaceArea = 0;
 };
+
+enum visit_action : char { visit_stop, visit_continue };
 
 /*! \brief The dynamic AABB tree.
 
@@ -275,14 +287,14 @@ class tree {
   /*! \brief A node of the AABB tree.
 
    Each node of the tree contains an AABB object which corresponds to a
-   particle, or a group of particles, in the simulation box. The AABB
-   objects of individual particles are "fattened" before they are stored
+   entry, or a group of entrys, in the simulation box. The AABB
+   objects of individual entrys are "fattened" before they are stored
    to avoid having to continually update and rebalance the tree when
    displacements are small.
 
    Nodes are aware of their position within in the tree. The isLeaf member
    function allows the tree to query whether the node is a leaf, i.e. to
-   determine whether it holds a single particle.
+   determine whether it holds a single entry.
   */
   struct node {
     /// Constructor.
@@ -292,22 +304,22 @@ class tree {
     aabb bb;
 
     /// Index of the parent node.
-    unsigned int parent;
+    unsigned int parent = 0;
 
     /// Index of the next node.
-    unsigned int next;
+    unsigned int next = 0;
 
     /// Index of the left-hand child.
-    unsigned int left;
+    unsigned int left = 0;
 
     /// Index of the right-hand child.
-    unsigned int right;
+    unsigned int right = 0;
 
     /// Height of the node. This is 0 for a leaf and -1 for a free node.
-    int height;
+    int height = 0;
 
-    /// The index of the particle that the node contains (leaf nodes only).
-    unsigned int particle;
+    /// The id of the entry that the node contains (leaf nodes only).
+    unsigned int id = 0;
 
     //! Test whether the node is a leaf.
     /*! \return
@@ -322,18 +334,14 @@ class tree {
           The skin thickness for fattened AABBs, as a fraction
           of the AABB base length.
 
-      \param nParticles
-          The number of particles (for fixed particle number systems).
+      \param nentrys
+          The number of entrys (for fixed entry number systems).
 
       \param touchIsOverlap
           Does touching count as overlapping in query operations?
    */
-  tree(value_type skin_thickness = 0,
-       unsigned int nParticles = 16,
-       bool touchIsOverlap = true)
-      : m_is_periodic(false),
-        m_skin_thickness(skin_thickness),
-        m_touch_is_overlap(touchIsOverlap)
+  tree(value_type skin_thickness = 0, unsigned int initial_size = 16)
+      : m_is_periodic(false), m_skin_thickness(skin_thickness)
   {
     // Initialise the periodicity vector.
     std::fill(m_periodicity.begin(), m_periodicity.end(), false);
@@ -341,7 +349,7 @@ class tree {
     // Initialise the tree.
     m_root = NULL_NODE;
     m_node_count = 0;
-    m_node_capacity = nParticles;
+    m_node_capacity = initial_size;
     m_nodes.resize(m_node_capacity);
 
     // Build a linked list for the list of free nodes.
@@ -367,8 +375,8 @@ class tree {
       \param boxSize
           The size of the simulation box in each dimension.
 
-      \param nParticles
-          The number of particles (for fixed particle number systems).
+      \param nentrys
+          The number of entrys (for fixed entry number systems).
 
       \param touchIsOverlap
           Does touching count as overlapping in query operations?
@@ -376,17 +384,15 @@ class tree {
   tree(double skinThickness,
        const vec<bool> &periodicity,
        const vec<double> &boxSize,
-       unsigned int nParticles = 16,
-       bool touchIsOverlap = true)
+       unsigned int initial_size = 16)
       : m_skin_thickness(skinThickness),
         m_periodicity(periodicity),
-        m_box_size(boxSize),
-        m_touch_is_overlap(touchIsOverlap)
+        m_box_size(boxSize)
   {
     // Initialise the tree.
     m_root = NULL_NODE;
     m_node_count = 0;
-    m_node_capacity = nParticles;
+    m_node_capacity = initial_size;
     m_nodes.resize(m_node_capacity);
 
     // Build a linked list for the list of free nodes.
@@ -416,7 +422,7 @@ class tree {
   /*! \param periodicity_
           Whether the system is periodic in each dimension.
    */
-  void setPeriodicity(const vec<bool> &periodicity)
+  void set_periodicity(const vec<bool> &periodicity)
   {
     m_periodicity = periodicity;
   }
@@ -425,66 +431,11 @@ class tree {
   /*! \param box_size
           The size of the simulation box in each dimension.
    */
-  void setBoxSize(const vec<double> &box_size) { m_box_size = box_size; }
+  void set_box_size(const vec<double> &box_size) { m_box_size = box_size; }
 
-  //! Insert a particle into the tree (point particle).
+  //! Insert a entry into the tree (arbitrary shape with bounding box).
   /*! \param index
-          The index of the particle.
-
-      \param position
-          The position vector of the particle.
-
-      \param radius
-          The radius of the particle.
-   */
-  void insertParticle(unsigned int particle,
-                      const point &position,
-                      double radius)
-  {
-    // Make sure the particle doesn't already exist.
-    if (m_particle_map.count(particle) != 0) {
-      throw std::invalid_argument("[ERROR]: Particle already exists in tree!");
-    }
-
-    // Allocate a new node for the particle.
-    unsigned int node = allocateNode();
-
-    // AABB size in each dimension.
-    vec<double> size;
-
-    // Compute the AABB limits.
-    for (unsigned int i = 0; i < Dim; i++) {
-      m_nodes[node].bb.lowerBound[i] = position[i] - radius;
-      m_nodes[node].bb.upperBound[i] = position[i] + radius;
-      size[i] = m_nodes[node].bb.upperBound[i] - m_nodes[node].bb.lowerBound[i];
-    }
-
-    // Fatten the AABB.
-    for (unsigned int i = 0; i < Dim; i++) {
-      m_nodes[node].bb.lowerBound[i] -= m_skin_thickness * size[i];
-      m_nodes[node].bb.upperBound[i] += m_skin_thickness * size[i];
-    }
-    m_nodes[node].bb.surfaceArea = m_nodes[node].bb.computeSurfaceArea();
-    m_nodes[node].bb.centre = m_nodes[node].bb.computeCentre();
-
-    // Zero the height.
-    m_nodes[node].height = 0;
-
-    // Insert a new leaf into the tree.
-    insertLeaf(node);
-
-    // Add the new particle to the map.
-    m_particle_map.insert(
-        std::unordered_map<unsigned int, unsigned int>::value_type(particle,
-                                                                   node));
-
-    // Store the particle index.
-    m_nodes[node].particle = particle;
-  }
-
-  //! Insert a particle into the tree (arbitrary shape with bounding box).
-  /*! \param index
-          The index of the particle.
+          The index of the entry.
 
       \param lowerBound
           The lower bound in each dimension.
@@ -492,154 +443,100 @@ class tree {
       \param upperBound
           The upper bound in each dimension.
    */
-  void insertParticle(unsigned int particle,
-                      const point &lowerBound,
-                      const point &upperBound)
+  void insert(unsigned int id, const aabb &bb)
   {
-    // Make sure the particle doesn't already exist.
-    if (m_particle_map.count(particle) != 0) {
-      throw std::invalid_argument("[ERROR]: Particle already exists in tree!");
+    // Make sure the entry doesn't already exist.
+    if (m_id_map.count(id) != 0) {
+      throw std::invalid_argument("[ERROR]: entry already exists in tree!");
     }
 
-    // Allocate a new node for the particle.
-    unsigned int node = allocateNode();
-
-    // AABB size in each dimension.
-    vec<double> size;
-
-    // Compute the AABB limits.
-    for (unsigned int i = 0; i < Dim; i++) {
-      // Validate the bound.
-      if (lowerBound[i] > upperBound[i]) {
-        throw std::invalid_argument(
-            "[ERROR]: AABB lower bound is greater than the upper bound!");
-      }
-
-      m_nodes[node].bb.lowerBound[i] = lowerBound[i];
-      m_nodes[node].bb.upperBound[i] = upperBound[i];
-      size[i] = upperBound[i] - lowerBound[i];
-    }
+    // Allocate a new node for the entry.
+    unsigned int node_idx = allocate_node();
+    auto &node = m_nodes[node_idx];
+    node.id = id;
+    node.bb = bb;
 
     // Fatten the AABB.
     for (unsigned int i = 0; i < Dim; i++) {
-      m_nodes[node].bb.lowerBound[i] -= m_skin_thickness * size[i];
-      m_nodes[node].bb.upperBound[i] += m_skin_thickness * size[i];
+      auto sz = bb.upperBound[i] - bb.lowerBound[i];
+      node.bb.lowerBound[i] -= m_skin_thickness * sz;
+      node.bb.upperBound[i] += m_skin_thickness * sz;
     }
-    m_nodes[node].bb.surfaceArea = m_nodes[node].bb.computeSurfaceArea();
-    m_nodes[node].bb.centre = m_nodes[node].bb.computeCentre();
+    node.bb.surfaceArea = node.bb.compute_surface_area();
+    node.bb.centre = node.bb.compute_center();
 
     // Zero the height.
-    m_nodes[node].height = 0;
+    node.height = 0;
 
     // Insert a new leaf into the tree.
-    insertLeaf(node);
+    insert_leaf(node_idx);
 
-    // Add the new particle to the map.
-    m_particle_map.insert(
-        std::unordered_map<unsigned int, unsigned int>::value_type(particle,
-                                                                   node));
-
-    // Store the particle index.
-    m_nodes[node].particle = particle;
+    // Add the new entry to the map.
+    m_id_map.insert(std::unordered_map<unsigned int, unsigned int>::value_type(
+        id, node_idx));
   }
 
-  /// Return the number of particles in the tree.
-  unsigned int nParticles() { return m_particle_map.size(); }
+  /// Return the number of entrys in the tree.
+  unsigned int size() const { return m_id_map.size(); }
 
-  //! Remove a particle from the tree.
-  /*! \param particle
-          The particle index (particleMap will be used to map the node).
+  //! Remove a entry from the tree.
+  /*! \param entry
+          The entry index (entryMap will be used to map the node).
    */
-  void removeParticle(unsigned int particle)
+  void remove(unsigned int id)
   {
     // Map iterator.
     std::unordered_map<unsigned int, unsigned int>::iterator it;
 
-    // Find the particle.
-    it = m_particle_map.find(particle);
+    // Find the entry.
+    it = m_id_map.find(id);
 
-    // The particle doesn't exist.
-    if (it == m_particle_map.end()) {
-      throw std::invalid_argument("[ERROR]: Invalid particle index!");
+    // The entry doesn't exist.
+    if (it == m_id_map.end()) {
+      throw std::invalid_argument("[ERROR]: Invalid entry index!");
     }
 
     // Extract the node index.
     unsigned int node = it->second;
 
-    // Erase the particle from the map.
-    m_particle_map.erase(it);
+    // Erase the entry from the map.
+    m_id_map.erase(it);
 
     assert(node < m_node_capacity);
     assert(m_nodes[node].isLeaf());
 
-    removeLeaf(node);
-    freeNode(node);
+    remove_leaf(node);
+    free_node(node);
   }
 
-  /// Remove all particles from the tree.
-  void removeAll()
+  /// Remove all entrys from the tree.
+  void clear()
   {
-    // Iterator pointing to the start of the particle map.
+    // Iterator pointing to the start of the entry map.
     std::unordered_map<unsigned int, unsigned int>::iterator it =
-        m_particle_map.begin();
+        m_id_map.begin();
 
     // Iterate over the map.
-    while (it != m_particle_map.end()) {
+    while (it != m_id_map.end()) {
       // Extract the node index.
       unsigned int node = it->second;
 
       assert(node < m_node_capacity);
       assert(m_nodes[node].isLeaf());
 
-      removeLeaf(node);
-      freeNode(node);
+      remove_leaf(node);
+      free_node(node);
 
       it++;
     }
 
-    // Clear the particle map.
-    m_particle_map.clear();
+    // Clear the entry map.
+    m_id_map.clear();
   }
 
-  //! Update the tree if a particle moves outside its fattened AABB.
-  /*! \param particle
-          The particle index (particleMap will be used to map the node).
-
-      \param position
-          The position vector of the particle.
-
-      \param radius
-          The radius of the particle.
-
-      \param alwaysReinsert
-          Always reinsert the particle, even if it's within its old AABB
-     (default:false)
-
-      \return
-          Whether the particle was reinserted.
-   */
-  bool updateParticle(unsigned int particle,
-                      const point &position,
-                      double radius,
-                      bool alwaysReinsert = false)
-  {
-    // AABB bounds vectors.
-    point lowerBound;
-    point upperBound;
-
-    // Compute the AABB limits.
-    for (unsigned int i = 0; i < Dim; i++) {
-      lowerBound[i] = position[i] - radius;
-      upperBound[i] = position[i] + radius;
-    }
-
-    // Update the particle.
-    return updateParticle(particle, lowerBound, upperBound, alwaysReinsert);
-  }
-
-  //! Update the tree if a particle moves outside its fattened AABB.
-  /*! \param particle
-          The particle index (particleMap will be used to map the node).
+  //! Update the tree if a entry moves outside its fattened AABB.
+  /*! \param entry
+          The entry index (entryMap will be used to map the node).
 
       \param lowerBound
           The lower bound in each dimension.
@@ -648,117 +545,168 @@ class tree {
           The upper bound in each dimension.
 
       \param alwaysReinsert
-          Always reinsert the particle, even if it's within its old AABB
+          Always reinsert the entry, even if it's within its old AABB
      (default: false)
    */
-  bool updateParticle(unsigned int particle,
-                      const point &lowerBound,
-                      const point &upperBound,
-                      bool alwaysReinsert = false)
+  bool update(unsigned int id, aabb bb, bool always_reinsert = false)
   {
     // Map iterator.
     std::unordered_map<unsigned int, unsigned int>::iterator it;
 
-    // Find the particle.
-    it = m_particle_map.find(particle);
+    // Find the entry.
+    it = m_id_map.find(id);
 
-    // The particle doesn't exist.
-    if (it == m_particle_map.end()) {
-      throw std::invalid_argument("[ERROR]: Invalid particle index!");
+    // The entry doesn't exist.
+    if (it == m_id_map.end()) {
+      throw std::invalid_argument("[ERROR]: Invalid entry index!");
     }
 
     // Extract the node index.
-    unsigned int node = it->second;
+    unsigned int node_idx = it->second;
+    auto &node = m_nodes[node_idx];
 
-    assert(node < m_node_capacity);
-    assert(m_nodes[node].isLeaf());
+    assert(node_idx < m_node_capacity);
+    assert(node.isLeaf());
 
-    // AABB size in each dimension.
-    vec<double> size;
-
-    // Compute the AABB limits.
-    for (unsigned int i = 0; i < Dim; i++) {
-      // Validate the bound.
-      if (lowerBound[i] > upperBound[i]) {
-        throw std::invalid_argument(
-            "[ERROR]: AABB lower bound is greater than the upper bound!");
-      }
-
-      size[i] = upperBound[i] - lowerBound[i];
-    }
-
-    // Create the new AABB.
-    aabb aabb(lowerBound, upperBound);
-
-    // No need to update if the particle is still within its fattened AABB.
-    if (!alwaysReinsert && m_nodes[node].bb.contains(aabb))
+    // No need to update if the entry is still within its fattened AABB.
+    if (!always_reinsert && node.bb.contains(bb))
       return false;
 
     // Remove the current leaf.
-    removeLeaf(node);
+    remove_leaf(node_idx);
 
     // Fatten the new AABB.
     for (unsigned int i = 0; i < Dim; i++) {
-      aabb.lowerBound[i] -= m_skin_thickness * size[i];
-      aabb.upperBound[i] += m_skin_thickness * size[i];
+      auto sz = bb.upperBound[i] - bb.lowerBound[i];
+      bb.lowerBound[i] -= m_skin_thickness * sz;
+      bb.upperBound[i] += m_skin_thickness * sz;
     }
 
     // Assign the new AABB.
-    m_nodes[node].bb = aabb;
+    node.bb = bb;
 
     // Update the surface area and centroid.
-    m_nodes[node].bb.surfaceArea = m_nodes[node].bb.computeSurfaceArea();
-    m_nodes[node].bb.centre = m_nodes[node].bb.computeCentre();
+    node.bb.surfaceArea = node.bb.compute_surface_area();
+    node.bb.centre = node.bb.compute_center();
 
     // Insert a new leaf node.
-    insertLeaf(node);
+    insert_leaf(node_idx);
 
     return true;
   }
 
-  //! Query the tree to find candidate interactions for a particle.
-  /*! \param particle
-          The particle index.
+  //! Query the tree to find candidate interactions for a entry.
+  /*! \param entry
+          The entry index.
 
-      \return particles
-          A vector of particle indices.
+      \return entrys
+          A vector of entry indices.
    */
-  std::vector<unsigned int> query(unsigned int particle)
+  std::vector<unsigned int> get_overlaps(unsigned int id)
   {
-    // Make sure that this is a valid particle.
-    if (m_particle_map.count(particle) == 0) {
-      throw std::invalid_argument("[ERROR]: Invalid particle index!");
+    // Make sure that this is a valid entry.
+    if (m_id_map.count(id) == 0) {
+      throw std::invalid_argument("[ERROR]: Invalid entry index!");
     }
 
-    // Test overlap of particle AABB against all other particles.
-    return query(m_nodes[m_particle_map.find(particle)->second].bb);
+    // Test overlap of entry AABB against all other entrys.
+    return query(m_nodes[m_id_map.find(id)->second].bb);
+  }
+
+  //! Query the tree to find candidate interactions for an AABB.
+  /*! \param aabb
+          The AABB.
+      \param out
+          An output iterator
+
+      \return entrys
+          A vector of entry indices.
+   */
+  template <class Query, class OutputIterator>
+  void get_overlaps(const Query &query,
+                    OutputIterator out,
+                    bool include_touch = true) const
+  {
+    visit_overlaps(
+        query, [&](unsigned int id) { *out++ = id; }, include_touch);
   }
 
   //! Query the tree to find candidate interactions for an AABB.
   /*! \param aabb
           The AABB.
 
-      \return particles
-          A vector of particle indices.
+      \return entrys
+          A vector of entry indices.
    */
+  template <class Query>
+  std::vector<unsigned int> get_overlaps(const Query &query,
+                                         bool include_touch = true) const
+  {
+    std::vector<unsigned int> overlaps;
+    visit_overlaps(
+        query, [&](unsigned int id) { overlaps.push_back(id); }, include_touch);
+    return overlaps;
+  }
 
   template <class Query>
-  std::vector<unsigned int> query(const Query &query) const
+  bool any_overlap(const Query &query, bool include_touch = true) const
+  {
+    return any_overlap(
+        query, [](unsigned) { return true; }, include_touch);
+  }
+
+  template <class Query, class Fn>
+  bool any_overlap(const Query &query, Fn &&fn, bool include_touch = true) const
+  {
+    constexpr bool fn_with_bb = std::is_invocable_v<Fn, unsigned, aabb>;
+    static_assert(std::is_invocable_v<Fn, unsigned int> || fn_with_bb,
+                  "Wrong function signature");
+    bool overlap = false;
+    if constexpr (fn_with_bb) {
+      auto wrap_fn = [&overlap, &fn](unsigned int id, const aabb &bb) {
+        bool success = std::forward<Fn>(fn)(id, bb);
+        overlap |= success;
+        return success ? visit_stop : visit_continue;
+      };
+      visit_overlaps(query, wrap_fn, include_touch);
+    }
+    else {
+      auto wrap_fn = [&overlap, &fn](unsigned int id) {
+        bool success = std::forward<Fn>(fn)(id);
+        overlap |= success;
+        return success ? visit_stop : visit_continue;
+      };
+      visit_overlaps(query, wrap_fn, include_touch);
+    }
+
+    return overlap;
+  }
+
+  template <class Query, class Fn>
+  void visit_overlaps(const Query &query,
+                      Fn &&fn,
+                      bool include_touch = true) const
   {
     constexpr bool query_is_point = std::is_same_v<Query, point>;
     constexpr bool query_is_aabb = std::is_same_v<Query, aabb>;
     static_assert(query_is_point || query_is_aabb,
                   "Only point or aabb queries are supported");
+    constexpr bool fn_with_bb = std::is_invocable_v<Fn, unsigned, aabb>;
+
+    using rt = decltype(get_return_type<fn_with_bb>(std::forward<Fn>(fn)));
+    constexpr bool fn_returns_action = std::is_convertible_v<rt, visit_action>;
+    static_assert(fn_returns_action || std::is_same_v<rt, void>,
+                  "Only void or visit_action return types are allowed");
+
     // Make sure the tree isn't empty.
-    if (m_particle_map.size() == 0) {
-      return std::vector<unsigned int>();
+    if (m_id_map.size() == 0) {
+      return;
     }
 
-    std::vector<unsigned int> stack;
-    stack.reserve(256);
-    stack.push_back(m_root);
+    static thread_local std::vector<unsigned int> stack(64);
+    stack.clear();
 
-    std::vector<unsigned int> particles;
+    stack.push_back(m_root);
 
     while (stack.size() > 0) {
       unsigned int node = stack.back();
@@ -783,7 +731,7 @@ class tree {
         for (unsigned int i = 0; i < Dim; i++)
           separation[i] = nodeAABB.centre[i] - center[i];
 
-        bool isShifted = minimumImage(separation, shift);
+        bool isShifted = minimum_image(separation, shift);
 
         // Shift the AABB.
         if (isShifted) {
@@ -795,10 +743,30 @@ class tree {
       }
 
       // Test for overlap between the AABBs.
-      if (nodeAABB.overlaps(query, m_touch_is_overlap)) {
+      if (nodeAABB.overlaps(query, include_touch)) {
         // Check that we're at a leaf node.
         if (m_nodes[node].isLeaf()) {
-          particles.push_back(m_nodes[node].particle);
+          const auto &n = m_nodes[node];
+          if constexpr (fn_returns_action) {
+            visit_action visit_act;
+            if constexpr (fn_with_bb) {
+              visit_act = std::forward<Fn>(fn)(n.id, n.bb);
+            }
+            else {
+              visit_act = std::forward<Fn>(fn)(n.id);
+            }
+            if (visit_act == visit_stop) {
+              return;
+            }
+          }
+          else {
+            if constexpr (fn_with_bb) {
+              std::forward<Fn>(fn)(n.id, n.bb);
+            }
+            else {
+              std::forward<Fn>(fn)(n.id);
+            }
+          }
         }
         else {
           stack.push_back(m_nodes[node].left);
@@ -806,94 +774,34 @@ class tree {
         }
       }
     }
-
-    return particles;
   }
 
-  //! Get a particle AABB.
-  /*! \param particle
-          The particle index.
+  //! Get a entry AABB.
+  /*! \param entry
+          The entry index.
    */
-  const aabb &getAABB(unsigned int particle) const
+  const aabb &get_aabb(unsigned int id) const
   {
-    return m_nodes[m_particle_map.at(particle)].bb;
+    return m_nodes[m_id_map.at(id)].bb;
   }
 
   //! Get the height of the tree.
   /*! \return
           The height of the binary tree.
    */
-  unsigned int getHeight() const
+  unsigned int get_height() const
   {
     if (m_root == NULL_NODE)
       return 0;
     return m_nodes[m_root].height;
   }
 
-  //! Get the number of nodes in the tree.
-  /*! \return
-          The number of nodes in the tree.
-   */
-  unsigned int getNodeCount() const { return m_node_count; }
-
-  //! Compute the maximum balancance of the tree.
-  /*! \return
-          The maximum difference between the height of two
-          children of a node.
-   */
-  unsigned int computeMaximumBalance() const
-  {
-    unsigned int maxBalance = 0;
-    for (unsigned int i = 0; i < m_node_capacity; i++) {
-      if (m_nodes[i].height <= 1)
-        continue;
-
-      assert(m_nodes[i].isLeaf() == false);
-
-      unsigned int balance = std::abs(m_nodes[m_nodes[i].left].height -
-                                      m_nodes[m_nodes[i].right].height);
-      maxBalance = std::max(maxBalance, balance);
-    }
-
-    return maxBalance;
-  }
-
-  void set_touch_is_overlap(bool is_overlap)
-  {
-    m_touch_is_overlap = is_overlap;
-  }
-
-  bool is_touch_overlap() const { return m_touch_is_overlap; }
-
-  //! Compute the surface area ratio of the tree.
-  /*! \return
-          The ratio of the sum of the node surface area to the surface
-          area of the root node.
-   */
-  double computeSurfaceAreaRatio() const
-  {
-    if (m_root == NULL_NODE)
-      return 0.0;
-
-    double rootArea = m_nodes[m_root].bb.computeSurfaceArea();
-    double totalArea = 0.0;
-
-    for (unsigned int i = 0; i < m_node_capacity; i++) {
-      if (m_nodes[i].height < 0)
-        continue;
-
-      totalArea += m_nodes[i].bb.computeSurfaceArea();
-    }
-
-    return totalArea / rootArea;
-  }
-
   /// Validate the tree.
   void validate() const
   {
 #ifndef NDEBUG
-    validateStructure(m_root);
-    validateMetrics(m_root);
+    validate_structure(m_root);
+    validate_metrics(m_root);
 
     unsigned int freeCount = 0;
     unsigned int freeIndex = m_free_list;
@@ -904,7 +812,7 @@ class tree {
       freeCount++;
     }
 
-    assert(getHeight() == computeHeight());
+    assert(get_height() == compute_height());
     assert((m_node_count + freeCount) == m_node_capacity);
 #endif
   }
@@ -926,7 +834,7 @@ class tree {
         count++;
       }
       else
-        freeNode(i);
+        free_node(i);
     }
 
     while (count > 1) {
@@ -940,7 +848,7 @@ class tree {
           aabb aabbj = m_nodes[nodeIndices[j]].bb;
           aabb aabb;
           aabb.merge(aabbi, aabbj);
-          double cost = aabb.getSurfaceArea();
+          double cost = aabb.get_surface_area();
 
           if (cost < minCost) {
             iMin = i;
@@ -953,7 +861,7 @@ class tree {
       unsigned int index1 = nodeIndices[iMin];
       unsigned int index2 = nodeIndices[jMin];
 
-      unsigned int parent = allocateNode();
+      unsigned int parent = allocate_node();
       m_nodes[parent].left = index1;
       m_nodes[parent].right = index2;
       m_nodes[parent].height =
@@ -1009,17 +917,25 @@ class tree {
   /// The position of the positive minimum image.
   point m_pos_min_image;
 
-  /// A map between particle and node indices.
-  std::unordered_map<unsigned int, unsigned int> m_particle_map;
+  /// A map between entry and node indices.
+  std::unordered_map<unsigned int, unsigned int> m_id_map;
 
-  /// Does touching count as overlapping in tree queries?
-  bool m_touch_is_overlap;
-
+ private:
+  template <bool with_aabb, class Fn>
+  static decltype(auto) get_return_type(Fn &&fn)
+  {
+    if constexpr (with_aabb) {
+      return std::forward<Fn>(fn)(0, aabb());
+    }
+    else {
+      return std::forward<Fn>(fn)(0);
+    }
+  }
   //! Allocate a new node.
   /*! \return
           The index of the allocated node.
    */
-  unsigned int allocateNode()
+  unsigned int allocate_node()
   {
     // Exand the node pool as needed.
     if (m_free_list == NULL_NODE) {
@@ -1057,7 +973,7 @@ class tree {
   /*! \param node
           The index of the node to be freed.
    */
-  void freeNode(unsigned int node)
+  void free_node(unsigned int node)
   {
     assert(node < m_node_capacity);
     assert(0 < m_node_count);
@@ -1072,7 +988,7 @@ class tree {
   /*! \param leaf
           The index of the leaf node.
    */
-  void insertLeaf(unsigned int leaf)
+  void insert_leaf(unsigned int leaf)
   {
     if (m_root == NULL_NODE) {
       m_root = leaf;
@@ -1090,11 +1006,11 @@ class tree {
       unsigned int left = m_nodes[index].left;
       unsigned int right = m_nodes[index].right;
 
-      double surfaceArea = m_nodes[index].bb.getSurfaceArea();
+      double surfaceArea = m_nodes[index].bb.get_surface_area();
 
       aabb combinedAABB;
       combinedAABB.merge(m_nodes[index].bb, leafAABB);
-      double combinedSurfaceArea = combinedAABB.getSurfaceArea();
+      double combinedSurfaceArea = combinedAABB.get_surface_area();
 
       // Cost of creating a new parent for this node and the new leaf.
       double cost = 2.0 * combinedSurfaceArea;
@@ -1107,13 +1023,13 @@ class tree {
       if (m_nodes[left].isLeaf()) {
         aabb aabb;
         aabb.merge(leafAABB, m_nodes[left].bb);
-        costLeft = aabb.getSurfaceArea() + inheritanceCost;
+        costLeft = aabb.get_surface_area() + inheritanceCost;
       }
       else {
         aabb aabb;
         aabb.merge(leafAABB, m_nodes[left].bb);
-        double oldArea = m_nodes[left].bb.getSurfaceArea();
-        double newArea = aabb.getSurfaceArea();
+        double oldArea = m_nodes[left].bb.get_surface_area();
+        double newArea = aabb.get_surface_area();
         costLeft = (newArea - oldArea) + inheritanceCost;
       }
 
@@ -1122,13 +1038,13 @@ class tree {
       if (m_nodes[right].isLeaf()) {
         aabb aabb;
         aabb.merge(leafAABB, m_nodes[right].bb);
-        costRight = aabb.getSurfaceArea() + inheritanceCost;
+        costRight = aabb.get_surface_area() + inheritanceCost;
       }
       else {
         aabb aabb;
         aabb.merge(leafAABB, m_nodes[right].bb);
-        double oldArea = m_nodes[right].bb.getSurfaceArea();
-        double newArea = aabb.getSurfaceArea();
+        double oldArea = m_nodes[right].bb.get_surface_area();
+        double newArea = aabb.get_surface_area();
         costRight = (newArea - oldArea) + inheritanceCost;
       }
 
@@ -1147,7 +1063,7 @@ class tree {
 
     // Create a new parent.
     unsigned int oldParent = m_nodes[sibling].parent;
-    unsigned int newParent = allocateNode();
+    unsigned int newParent = allocate_node();
     m_nodes[newParent].parent = oldParent;
     m_nodes[newParent].bb.merge(leafAABB, m_nodes[sibling].bb);
     m_nodes[newParent].height = m_nodes[sibling].height + 1;
@@ -1196,7 +1112,7 @@ class tree {
   /*! \param leaf
           The index of the leaf node.
    */
-  void removeLeaf(unsigned int leaf)
+  void remove_leaf(unsigned int leaf)
   {
     if (leaf == m_root) {
       m_root = NULL_NODE;
@@ -1220,7 +1136,7 @@ class tree {
         m_nodes[grandParent].right = sibling;
 
       m_nodes[sibling].parent = grandParent;
-      freeNode(parent);
+      free_node(parent);
 
       // Adjust ancestor bounds.
       unsigned int index = grandParent;
@@ -1240,7 +1156,7 @@ class tree {
     else {
       m_root = sibling;
       m_nodes[sibling].parent = NULL_NODE;
-      freeNode(parent);
+      free_node(parent);
     }
   }
 
@@ -1378,7 +1294,7 @@ class tree {
   /*! \return
           The height of the entire tree.
    */
-  unsigned int computeHeight() const { return computeHeight(m_root); }
+  unsigned int compute_height() const { return compute_height(m_root); }
 
   //! Compute the height of a sub-tree.
   /*! \param node
@@ -1387,7 +1303,7 @@ class tree {
       \return
           The height of the sub-tree.
    */
-  unsigned int computeHeight(unsigned int node) const
+  unsigned int compute_height(unsigned int node) const
   {
     assert(node < m_node_capacity);
 
@@ -1404,7 +1320,7 @@ class tree {
   /*! \param node
           The index of the root node.
    */
-  void validateStructure(unsigned int node) const
+  void validate_structure(unsigned int node) const
   {
     if (node == NULL_NODE)
       return;
@@ -1428,15 +1344,15 @@ class tree {
     assert(m_nodes[left].parent == node);
     assert(m_nodes[right].parent == node);
 
-    validateStructure(left);
-    validateStructure(right);
+    validate_structure(left);
+    validate_structure(right);
   }
 
   //! Assert that the sub-tree has valid metrics.
   /*! \param node
           The index of the root node.
    */
-  void validateMetrics(unsigned int node) const
+  void validate_metrics(unsigned int node) const
   {
     if (node == NULL_NODE)
       return;
@@ -1468,15 +1384,15 @@ class tree {
       assert(aabb.upperBound[i] == m_nodes[node].bb.upperBound[i]);
     }
 
-    validateMetrics(left);
-    validateMetrics(right);
+    validate_metrics(left);
+    validate_metrics(right);
   }
 
   //! Apply periodic boundary conditions.
   /* \param position
           The position vector.
    */
-  void periodicBoundaries(vec<double> &position)
+  void periodic_boundaries(vec<double> &position)
   {
     for (unsigned int i = 0; i < Dim; i++) {
       if (position[i] < 0) {
@@ -1500,7 +1416,7 @@ class tree {
       \return
           Whether a periodic shift has been applied.
    */
-  bool minimumImage(vec<double> &separation, vec<double> &shift) const
+  bool minimum_image(vec<double> &separation, vec<double> &shift) const
   {
     bool isShifted = false;
 
@@ -1513,7 +1429,7 @@ class tree {
       else {
         if (separation[i] >= m_pos_min_image[i]) {
           separation[i] -= m_periodicity[i] * m_box_size[i];
-          shift[i] = -m_periodicity[i] * m_box_size[i];
+          shift[i] = -(m_periodicity[i] * m_box_size[i]);
           isShifted = true;
         }
       }
