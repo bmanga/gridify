@@ -96,13 +96,18 @@ template <class CBFun>
 void for_point_in_poly(const Surface_Mesh &poly,
                        const points_checker &checker,
                        const bounds &bounds,
-                       float spacing,
+                       float spacing_x,
+                       float spacing_y,
+                       float spacing_z,
+                       float off_xy,
                        float point_radius,
                        CBFun &&callback)
 {
-  for (auto [z1, z2] = bounds.z; z1 <= z2; z1 += spacing) {
-    for (auto [y1, y2] = bounds.y; y1 <= y2; y1 += spacing) {
-      for (auto [x1, x2] = bounds.x; x1 <= x2; x1 += spacing) {
+  auto [x, y, z] = bounds;
+  double cum_off_xy = 0;
+  for (auto z1 = z.first; z1 <= z.second; z1 += spacing_z) {
+    for (auto y1 = y.first - cum_off_xy; y1 <= y.second; y1 += spacing_y) {
+      for (auto x1 = x.first - cum_off_xy; x1 <= x.second; x1 += spacing_x) {
         auto pt = Point_3(x1, y1, z1);
         if (checker.is_inside_ch(pt) &&
             checker.has_no_atomic_clashes(pt, point_radius)) {
@@ -110,6 +115,7 @@ void for_point_in_poly(const Surface_Mesh &poly,
         }
       }
     }
+    cum_off_xy += off_xy;
   }
 }
 
@@ -118,16 +124,28 @@ int gen_grid_pdb(std::ostream &out,
                  const Surface_Mesh &poly,
                  const bounds &bounds,
                  float spacing,
-                 float pt_radius)
+                 float pt_radius,
+                 bool dense_packing)
 {
   out << "CRYST1    0.000    0.000    0.000  90.00  90.00  90.00 P 1           "
          "1\n";
 
   int cnt = 0;
   int resID = 0;
+  float spacing_x = spacing;
+  float spacing_y = spacing;
+  float spacing_z = spacing;
+  float off_xy = 0;
 
+  if (dense_packing) {
+    spacing_x = 2 * pt_radius;
+    spacing_y = 2 * pt_radius;
+    spacing_z = std::sqrt(2) * pt_radius;
+    off_xy = pt_radius;
+  }
   for_point_in_poly(
-      poly, checker, bounds, spacing, pt_radius, [&](const Point_3 &pt) {
+      poly, checker, bounds, spacing_x, spacing_y, spacing_z, off_xy, pt_radius,
+      [&](const Point_3 &pt) {
         out << fmt::format(
             "HETATM{:>5}  C   PTH {:>5}{:>12.3f}{:>8.3f}{:>8.3f}  0.00  0.00\n",
             ++cnt, ++resID, pt.x(), pt.y(), pt.z());
@@ -150,7 +168,8 @@ int main(int argc, char *argv[])
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
     ("r,site_residues", "list of residues ids that make up the binding site", cxxopts::value<std::vector<int>>())
     ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"))
-    ("point_radius", "if not 0, the grid points are considered spheres with the given radius", cxxopts::value<double>()->default_value("0"));
+    ("point_radius", "if not 0, the grid points are considered spheres with the given radius", cxxopts::value<double>()->default_value("0"))
+    ("dense_packing", "enable dense packing for the grid point (point_radius must be > 0, spacing is ignored)", cxxopts::value<bool>()->default_value("false"));
   // clang-format on
 
   opts.parse_positional("in_file");
@@ -175,7 +194,13 @@ int main(int argc, char *argv[])
   g_verbose = parsed_opts["verbose"].as<bool>();
   auto residues = parsed_opts["site_residues"].as<std::vector<int>>();
   bool check_atoms = parsed_opts["rm_atom_overlaps"].as<bool>();
-  int point_radius = parsed_opts["point_radius"].as<double>();
+  auto point_radius = parsed_opts["point_radius"].as<double>();
+  bool dense_packing = parsed_opts["dense_packing"].as<bool>();
+
+  if (dense_packing && point_radius == 0) {
+    std::cerr << "With dense packing, you must specify a point_radius > 0\n";
+    return -1;
+  }
 
   auto pdb_file = std::ifstream(in_file);
   if (!pdb_file.is_open()) {
@@ -217,13 +242,13 @@ z    {:.3f}  {:.3f}
   int num_grid_points = 0;
 
   if (out_file.empty()) {
-    num_grid_points =
-        gen_grid_pdb(std::cout, checker, poly, bounds, spacing, point_radius);
+    num_grid_points = gen_grid_pdb(std::cout, checker, poly, bounds, spacing,
+                                   point_radius, dense_packing);
   }
   else {
     auto ofs = std::ofstream(out_file);
-    num_grid_points =
-        gen_grid_pdb(ofs, checker, poly, bounds, spacing, point_radius);
+    num_grid_points = gen_grid_pdb(ofs, checker, poly, bounds, spacing,
+                                   point_radius, dense_packing);
   }
 
   if (g_verbose) {
