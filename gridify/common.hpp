@@ -79,9 +79,9 @@ struct radius_matcher {
 
     auto vlog_radius = [&entry, &atom](const char *where, double radius) {
       vlog(
-          "RADIUS - using {} value for atom {} ({}.{}, using atomname {}) "
+          "RADIUS - value for atom {} ({}.{}, using {}.{}) "
           "= {}\n",
-          where, entry.atom_id, entry.residue, entry.atom, atom, radius);
+          entry.atom_id, entry.residue, entry.atom, where, atom, radius);
     };
 
     if (radii.contains(resid)) {
