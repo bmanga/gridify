@@ -168,7 +168,8 @@ void rm_low_connectivity_points(std::vector<Point_3> &grid,
   while (!stable) {
     stable = true;
     idx = 0;
-    std::erase_if(grid, [&](Point_3 pt) {
+
+    auto it = std::remove_if(grid.begin(), grid.end(), [&](Point_3 pt) {
       bool remove = false;
       if (count_overlaps(pt)) {
         remove = true;
@@ -178,6 +179,7 @@ void rm_low_connectivity_points(std::vector<Point_3> &grid,
       ++idx;
       return remove;
     });
+    grid.erase(it, grid.end());
   }
 }
 
