@@ -325,7 +325,7 @@ class tree {
     /*! \return
             Whether the node is a leaf node.
      */
-    bool isLeaf() const { return (left == NULL_NODE); }
+    bool isLeaf() const { return (height == 0); }
   };
 
  public:
@@ -680,6 +680,16 @@ class tree {
     }
 
     return overlap;
+  }
+
+  template <class Fn>
+  void for_each(Fn &&fn)
+  {
+    for (const auto &node : m_nodes) {
+      if (node.isLeaf()) {
+        std::forward<Fn>(fn)(node.id, node.bb);
+      }
+    }
   }
 
   template <class Query, class Fn>

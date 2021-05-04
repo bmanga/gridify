@@ -142,23 +142,23 @@ std::vector<Point_3> gen_grid(const points_checker &checker,
 }
 
 void rm_low_connectivity_points(std::vector<Point_3> &grid,
-                                double cutoff,
+                                double dist_cutoff,
                                 double min_conn_score)
 {
   abt::tree3d points;
   unsigned idx = 0;
   for (const auto &pt : grid) {
     points.insert(idx++,
-                  abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, cutoff));
+                  abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, dist_cutoff));
   }
-  auto count_overlaps = [&](Point_3 pt) {
+  auto count_overlaps = [&](abt::point3d pt) {
     float cnt = 0;
     points.visit_overlaps(
-        abt::point3d(pt.x(), pt.y(), pt.z()),
+        pt,
         [&](unsigned, const abt::aabb3d &bb) {
           cnt += 0.5;
           if (std::hypot(pt.x() - bb.centre.x(), pt.y() - bb.centre.y(),
-                         pt.z() - bb.centre.z()) <= cutoff) {
+                         pt.z() - bb.centre.z()) <= dist_cutoff) {
             cnt += 0.5;
           }
         });
@@ -167,20 +167,20 @@ void rm_low_connectivity_points(std::vector<Point_3> &grid,
   bool stable = false;
   while (!stable) {
     stable = true;
-    idx = 0;
 
-    auto it = std::remove_if(grid.begin(), grid.end(), [&](Point_3 pt) {
-      bool remove = false;
-      if (count_overlaps(pt)) {
-        remove = true;
-        points.remove(idx);
+    points.for_each([&](unsigned id, const auto &bb) {
+      if (count_overlaps(bb.centre)) {
         stable = false;
+        points.remove(id);
       }
-      ++idx;
-      return remove;
     });
-    grid.erase(it, grid.end());
   }
+
+  grid.clear();
+  points.for_each([&](unsigned id, const auto &bb) {
+    auto pt = bb.centre;
+    grid.emplace_back(pt.x(), pt.y(), pt.z());
+  });
 }
 
 void write_out_pdb(std::ostream &out, const std::vector<Point_3> &points)
