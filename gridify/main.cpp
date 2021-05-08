@@ -132,8 +132,6 @@ std::vector<Point_3> gen_grid(const points_checker &checker,
   float off_xy = 0;
 
   if (dense_packing) {
-    spacing_x = 2 * pt_radius;
-    spacing_y = 2 * pt_radius;
     spacing_z = std::sqrt(2) * pt_radius;
     off_xy = pt_radius;
   }
@@ -141,46 +139,83 @@ std::vector<Point_3> gen_grid(const points_checker &checker,
                          off_xy, pt_radius);
 }
 
-void rm_low_connectivity_points(std::vector<Point_3> &grid,
+void rm_low_connectivity_points(abt::tree3d &points,
                                 double dist_cutoff,
                                 double min_conn_score)
 {
-  abt::tree3d points;
-  unsigned idx = 0;
-  for (const auto &pt : grid) {
-    points.insert(idx++,
-                  abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, dist_cutoff));
-  }
-  auto count_overlaps = [&](abt::point3d pt) {
-    float cnt = 0;
-    points.visit_overlaps(
-        pt,
-        [&](unsigned, const abt::aabb3d &bb) {
-          cnt += 0.5;
-          if (std::hypot(pt.x() - bb.centre.x(), pt.y() - bb.centre.y(),
-                         pt.z() - bb.centre.z()) <= dist_cutoff) {
-            cnt += 0.5;
-          }
-        });
-    return cnt < min_conn_score;
+  auto overlap_score = [&](abt::aabb3d bb) {
+    double cnt = 0;
+    points.visit_overlaps(bb, [&](unsigned, const abt::aabb3d &bb2) {
+      cnt += 0.5;
+      if (std::hypot(bb2.centre.x() - bb.centre.x(),
+                     bb2.centre.y() - bb.centre.y(),
+                     bb2.centre.z() - bb.centre.z()) <= dist_cutoff) {
+        cnt += 0.5;
+      }
+    });
+    // Ignore the self overlap.
+    return cnt - 1;
   };
+
   bool stable = false;
   while (!stable) {
     stable = true;
-
     points.for_each([&](unsigned id, const auto &bb) {
-      if (count_overlaps(bb.centre)) {
+      if (overlap_score(bb) < min_conn_score) {
         stable = false;
         points.remove(id);
       }
     });
   }
+}
 
-  grid.clear();
-  points.for_each([&](unsigned id, const auto &bb) {
-    auto pt = bb.centre;
-    grid.emplace_back(pt.x(), pt.y(), pt.z());
+template <class Fn>
+void dfs_search(unsigned node_id,
+                const abt::tree3d &tree,
+                std::unordered_set<unsigned> &visited,
+                unsigned group,
+                Fn &&fn)
+{
+  visited.insert(node_id);
+  std::forward<Fn>(fn)(group, node_id);
+
+  tree.visit_overlaps(tree.get_aabb(node_id), [&](unsigned id) {
+    if (visited.count(id) == 0) {
+      dfs_search(id, tree, visited, group, std::forward<Fn>(fn));
+    }
   });
+}
+
+template <class Fn>
+void visit_connected_components(const abt::tree3d &tree, Fn &&fn)
+{
+  std::unordered_set<unsigned> visited;
+  visited.reserve(tree.size());
+  unsigned group = 0;
+  tree.for_each([&](unsigned id, const auto &) {
+    if (visited.count(id) == 0) {
+      dfs_search(id, tree, visited, group++, std::forward<Fn>(fn));
+    }
+  });
+}
+
+void keep_largest_cluster_only(abt::tree3d &grid)
+{
+  std::vector<std::vector<unsigned>> groups(grid.size());
+  visit_connected_components(grid, [&](unsigned group_id, unsigned node_id) {
+    groups[group_id].push_back(node_id);
+  });
+  auto biggest_group_it = std::max_element(
+      groups.begin(), groups.end(),
+      [](const auto &a, const auto &b) { return a.size() < b.size(); });
+  for (auto it = groups.begin(); it != groups.end(); ++it) {
+    if (it == biggest_group_it) {
+      continue;
+    }
+    for (unsigned id : *it) {
+      grid.remove(id);
+    }
+  }
 }
 
 void write_out_pdb(std::ostream &out, const std::vector<Point_3> &points)
@@ -206,13 +241,14 @@ int main(int argc, char *argv[])
   // clang-format off
   opts.add_options()("i,in_file", "input file", cxxopts::value<std::string>())
     ("o,out_file", "output file (stdout if omitted)",cxxopts::value<std::string>()->default_value(""))
-    ("s,spacing", "grid spacing", cxxopts::value<float>()->default_value("1.0f"))
+    ("s,spacing", "grid spacing", cxxopts::value<double>()->default_value("1.0f"))
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
     ("r,site_residues", "list of residues ids that make up the binding site", cxxopts::value<std::vector<int>>())
     ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"))
     ("point_radius", "if not 0, the grid points are considered spheres with the given radius", cxxopts::value<double>()->default_value("0"))
-    ("dense_packing", "enable dense packing for the grid point (point_radius must be > 0, spacing is ignored)", cxxopts::value<bool>()->default_value("false"))
-    ("rm_lc_cutoff", "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)", cxxopts::value<double>()->default_value("0"));
+    ("dense_packing", "enable dense packing for the grid point (point_radius must be > 0, spacing is set to 2 times point_radius)", cxxopts::value<bool>()->default_value("false"))
+    ("rm_lc_cutoff", "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)", cxxopts::value<double>()->default_value("0"))
+    ("largest_cluster_only", "only keep the largest cluster of close points (uses spacing to determine connectivity)", cxxopts::value<bool>()->default_value("false"));
   // clang-format on
 
   opts.parse_positional("in_file");
@@ -233,16 +269,27 @@ int main(int argc, char *argv[])
 
   auto in_file = parsed_opts["in_file"].as<std::string>();
   auto out_file = parsed_opts["out_file"].as<std::string>();
-  auto spacing = parsed_opts["spacing"].as<float>();
+  auto spacing = parsed_opts["spacing"].as<double>();
   g_verbose = parsed_opts["verbose"].as<bool>();
   auto residues = parsed_opts["site_residues"].as<std::vector<int>>();
   bool check_atoms = parsed_opts["rm_atom_overlaps"].as<bool>();
   auto point_radius = parsed_opts["point_radius"].as<double>();
   bool dense_packing = parsed_opts["dense_packing"].as<bool>();
   auto rm_lc_cutoff = parsed_opts["rm_lc_cutoff"].as<double>();
+  bool largest_cluster_only = parsed_opts["largest_cluster_only"].as<bool>();
 
   if (dense_packing && point_radius == 0) {
     std::cerr << "With dense packing, you must specify a point_radius > 0\n";
+    return -1;
+  }
+
+  if (dense_packing) {
+    spacing = 2 * point_radius;
+  }
+
+  if (point_radius > 0 && spacing < 2 * point_radius) {
+    std::cerr << "If point_radius is set, the spacing must be at least 2 * "
+                 "point_radius\n";
     return -1;
   }
 
@@ -287,8 +334,26 @@ z    {:.3f}  {:.3f}
   auto grid_points =
       gen_grid(checker, poly, bounds, spacing, point_radius, dense_packing);
 
-  if (rm_lc_cutoff > 0) {
-    rm_low_connectivity_points(grid_points, spacing, rm_lc_cutoff);
+  if (rm_lc_cutoff > 0 || largest_cluster_only) {
+    abt::tree3d points;
+    double conn_radius = spacing / 2.0 + std::numeric_limits<double>::epsilon();
+    for (const auto &pt : grid_points) {
+      points.insert(
+          abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, conn_radius));
+    }
+
+    if (rm_lc_cutoff > 0) {
+      rm_low_connectivity_points(points, spacing, rm_lc_cutoff);
+    }
+    if (largest_cluster_only) {
+      keep_largest_cluster_only(points);
+    }
+
+    grid_points.clear();
+    points.for_each([&](unsigned id, const auto &bb) {
+      auto pt = bb.centre;
+      grid_points.emplace_back(pt.x(), pt.y(), pt.z());
+    });
   }
 
   if (out_file.empty()) {

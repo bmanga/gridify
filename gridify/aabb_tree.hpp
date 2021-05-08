@@ -54,9 +54,13 @@ struct point {
 
   bool operator==(const point &other) const { return values == other.values; }
 
-  value_type x() const { return values[0]; }
-  value_type y() const { return values[1]; }
-  value_type z() const { return values[2]; }
+  const value_type &x() const { return values[0]; }
+  const value_type &y() const { return values[1]; }
+  const value_type &z() const { return values[2]; }
+
+  value_type &x() { return values[0]; }
+  value_type &y() { return values[1]; }
+  value_type &z() { return values[2]; }
 
   constexpr size_t size() const { return Dim; }
 
@@ -318,9 +322,6 @@ class tree {
     /// Height of the node. This is 0 for a leaf and -1 for a free node.
     int height = 0;
 
-    /// The id of the entry that the node contains (leaf nodes only).
-    unsigned int id = 0;
-
     //! Test whether the node is a leaf.
     /*! \return
             Whether the node is a leaf node.
@@ -443,17 +444,11 @@ class tree {
       \param upperBound
           The upper bound in each dimension.
    */
-  void insert(unsigned int id, const aabb &bb)
+  unsigned insert(const aabb &bb)
   {
-    // Make sure the entry doesn't already exist.
-    if (m_id_map.count(id) != 0) {
-      throw std::invalid_argument("[ERROR]: entry already exists in tree!");
-    }
-
     // Allocate a new node for the entry.
     unsigned int node_idx = allocate_node();
     auto &node = m_nodes[node_idx];
-    node.id = id;
     node.bb = bb;
 
     // Fatten the AABB.
@@ -470,38 +465,18 @@ class tree {
 
     // Insert a new leaf into the tree.
     insert_leaf(node_idx);
-
-    // Add the new entry to the map.
-    m_id_map.insert(std::unordered_map<unsigned int, unsigned int>::value_type(
-        id, node_idx));
+    return node_idx;
   }
 
   /// Return the number of entrys in the tree.
-  unsigned int size() const { return m_id_map.size(); }
+  unsigned int size() const { return m_leaf_count; }
 
   //! Remove a entry from the tree.
   /*! \param entry
           The entry index (entryMap will be used to map the node).
    */
-  void remove(unsigned int id)
+  void remove(unsigned int node)
   {
-    // Map iterator.
-    std::unordered_map<unsigned int, unsigned int>::iterator it;
-
-    // Find the entry.
-    it = m_id_map.find(id);
-
-    // The entry doesn't exist.
-    if (it == m_id_map.end()) {
-      return;
-    }
-
-    // Extract the node index.
-    unsigned int node = it->second;
-
-    // Erase the entry from the map.
-    m_id_map.erase(it);
-
     assert(node < m_node_capacity);
     assert(m_nodes[node].isLeaf());
 
@@ -512,26 +487,8 @@ class tree {
   /// Remove all entrys from the tree.
   void clear()
   {
-    // Iterator pointing to the start of the entry map.
-    std::unordered_map<unsigned int, unsigned int>::iterator it =
-        m_id_map.begin();
-
-    // Iterate over the map.
-    while (it != m_id_map.end()) {
-      // Extract the node index.
-      unsigned int node = it->second;
-
-      assert(node < m_node_capacity);
-      assert(m_nodes[node].isLeaf());
-
-      remove_leaf(node);
-      free_node(node);
-
-      it++;
-    }
-
-    // Clear the entry map.
-    m_id_map.clear();
+    // TODO
+    assert(false && "Reimplement");
   }
 
   //! Update the tree if a entry moves outside its fattened AABB.
@@ -548,32 +505,19 @@ class tree {
           Always reinsert the entry, even if it's within its old AABB
      (default: false)
    */
-  bool update(unsigned int id, aabb bb, bool always_reinsert = false)
+  bool update(unsigned int node, aabb bb, bool always_reinsert = false)
   {
-    // Map iterator.
-    std::unordered_map<unsigned int, unsigned int>::iterator it;
+    auto &n = m_nodes[node];
 
-    // Find the entry.
-    it = m_id_map.find(id);
-
-    // The entry doesn't exist.
-    if (it == m_id_map.end()) {
-      throw std::invalid_argument("[ERROR]: Invalid entry index!");
-    }
-
-    // Extract the node index.
-    unsigned int node_idx = it->second;
-    auto &node = m_nodes[node_idx];
-
-    assert(node_idx < m_node_capacity);
-    assert(node.isLeaf());
+    assert(node < m_node_capacity);
+    assert(n.isLeaf());
 
     // No need to update if the entry is still within its fattened AABB.
-    if (!always_reinsert && node.bb.contains(bb))
+    if (!always_reinsert && n.bb.contains(bb))
       return false;
 
     // Remove the current leaf.
-    remove_leaf(node_idx);
+    remove_leaf(node);
 
     // Fatten the new AABB.
     for (unsigned int i = 0; i < Dim; i++) {
@@ -583,14 +527,14 @@ class tree {
     }
 
     // Assign the new AABB.
-    node.bb = bb;
+    n.bb = bb;
 
     // Update the surface area and centroid.
-    node.bb.surfaceArea = node.bb.compute_surface_area();
-    node.bb.centre = node.bb.compute_center();
+    n.bb.surfaceArea = n.bb.compute_surface_area();
+    n.bb.centre = n.bb.compute_center();
 
     // Insert a new leaf node.
-    insert_leaf(node_idx);
+    insert_leaf(node);
 
     return true;
   }
@@ -602,15 +546,10 @@ class tree {
       \return entrys
           A vector of entry indices.
    */
-  std::vector<unsigned int> get_overlaps(unsigned int id)
+  std::vector<unsigned int> get_overlaps(unsigned int node)
   {
-    // Make sure that this is a valid entry.
-    if (m_id_map.count(id) == 0) {
-      throw std::invalid_argument("[ERROR]: Invalid entry index!");
-    }
-
     // Test overlap of entry AABB against all other entrys.
-    return query(m_nodes[m_id_map.find(id)->second].bb);
+    return query(m_nodes[node].bb);
   }
 
   //! Query the tree to find candidate interactions for an AABB.
@@ -683,11 +622,12 @@ class tree {
   }
 
   template <class Fn>
-  void for_each(Fn &&fn)
+  void for_each(Fn &&fn) const
   {
-    for (const auto &node : m_nodes) {
+    for (auto idx = 0ull; idx < m_nodes.size(); ++idx) {
+      const auto &node = m_nodes[idx];
       if (node.isLeaf()) {
-        std::forward<Fn>(fn)(node.id, node.bb);
+        std::forward<Fn>(fn)(idx, node.bb);
       }
     }
   }
@@ -696,6 +636,16 @@ class tree {
   void visit_overlaps(const Query &query,
                       Fn &&fn,
                       bool include_touch = true) const
+  {
+    std::vector<unsigned int> stack(64);
+    return visit_overlaps(query, std::forward<Fn>(fn), include_touch, stack);
+  }
+
+  template <class Query, class Fn>
+  void visit_overlaps(const Query &query,
+                      Fn &&fn,
+                      bool include_touch,
+                      std::vector<unsigned> &stack) const
   {
     constexpr bool query_is_point = std::is_same_v<Query, point>;
     constexpr bool query_is_aabb = std::is_same_v<Query, aabb>;
@@ -709,11 +659,10 @@ class tree {
                   "Only void or visit_action return types are allowed");
 
     // Make sure the tree isn't empty.
-    if (m_id_map.size() == 0) {
+    if (size() == 0) {
       return;
     }
 
-    static thread_local std::vector<unsigned int> stack(64);
     stack.clear();
 
     stack.push_back(m_root);
@@ -760,10 +709,10 @@ class tree {
           if constexpr (fn_returns_action) {
             visit_action visit_act;
             if constexpr (fn_with_bb) {
-              visit_act = std::forward<Fn>(fn)(n.id, n.bb);
+              visit_act = std::forward<Fn>(fn)(node, n.bb);
             }
             else {
-              visit_act = std::forward<Fn>(fn)(n.id);
+              visit_act = std::forward<Fn>(fn)(node);
             }
             if (visit_act == visit_stop) {
               return;
@@ -771,10 +720,10 @@ class tree {
           }
           else {
             if constexpr (fn_with_bb) {
-              std::forward<Fn>(fn)(n.id, n.bb);
+              std::forward<Fn>(fn)(node, n.bb);
             }
             else {
-              std::forward<Fn>(fn)(n.id);
+              std::forward<Fn>(fn)(node);
             }
           }
         }
@@ -790,10 +739,7 @@ class tree {
   /*! \param entry
           The entry index.
    */
-  const aabb &get_aabb(unsigned int id) const
-  {
-    return m_nodes[m_id_map.at(id)].bb;
-  }
+  const aabb &get_aabb(unsigned int node) const { return m_nodes[node].bb; }
 
   //! Get the height of the tree.
   /*! \return
@@ -902,6 +848,8 @@ class tree {
   /// The current number of nodes in the tree.
   unsigned int m_node_count;
 
+  unsigned int m_leaf_count = 0;
+
   /// The current node capacity.
   unsigned int m_node_capacity;
 
@@ -926,9 +874,6 @@ class tree {
 
   /// The position of the positive minimum image.
   point m_pos_min_image;
-
-  /// A map between entry and node indices.
-  std::unordered_map<unsigned int, unsigned int> m_id_map;
 
  private:
   template <bool with_aabb, class Fn>
@@ -1000,6 +945,7 @@ class tree {
    */
   void insert_leaf(unsigned int leaf)
   {
+    ++m_leaf_count;
     if (m_root == NULL_NODE) {
       m_root = leaf;
       m_nodes[m_root].parent = NULL_NODE;
@@ -1124,6 +1070,7 @@ class tree {
    */
   void remove_leaf(unsigned int leaf)
   {
+    --m_leaf_count;
     if (leaf == m_root) {
       m_root = NULL_NODE;
       return;

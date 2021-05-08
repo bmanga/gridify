@@ -172,8 +172,7 @@ struct points_checker {
         continue;
       }
       auto pos = atom.pos;
-      atoms_tree.insert(
-          ++cnt, abt::aabb3d::of_sphere({pos.x(), pos.y(), pos.z()}, radius));
+      atoms_tree.insert(abt::aabb3d::of_sphere({pos.x(), pos.y(), pos.z()}, radius));
     }
     opt_atoms_tree = std::move(atoms_tree);
   }
