@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <yaml-cpp/yaml.h>
 
 #include <cxxopts.hpp>
 
@@ -232,14 +233,47 @@ void write_out_pdb(std::ostream &out, const std::vector<Point_3> &points)
   out << "END\n";
 }
 
-int main(int argc, char *argv[])
+#define ALL_SETTINGS            \
+  X(std::string, in_file)       \
+  X(std::string, out_file)      \
+  X(bool, verbose)              \
+  X(bool, dense_packing)        \
+  X(bool, rm_atom_overlaps)     \
+  X(bool, largest_cluster_only) \
+  X(double, spacing)            \
+  X(double, point_radius)       \
+  X(double, rm_lc_cutoff)       \
+  X(std::vector<int>, site_residues)
+
+struct config {
+#define X(type, name) type name;
+  ALL_SETTINGS
+#undef X
+};
+
+config parse_yaml_settings(const std::string &file)
+{
+  config c;
+  YAML::Node y = YAML::LoadFile(file);
+#define X(type, name)             \
+  if (y[#name]) {                 \
+    c.name = y[#name].as<type>(); \
+  }
+
+  ALL_SETTINGS
+
+#undef X
+  return c;
+}
+
+config parse_cmd_line_settings(int argc, char *argv[])
 {
   auto opts = cxxopts::Options(
       "gridify",
       "Generates a grid of points within the convex hull of the input points");
 
   // clang-format off
-  opts.add_options()("i,in_file", "input file", cxxopts::value<std::string>())
+  opts.add_options()("i,in_file", "input file", cxxopts::value<std::string>()->default_value(""))
     ("o,out_file", "output file (stdout if omitted)",cxxopts::value<std::string>()->default_value(""))
     ("s,spacing", "grid spacing", cxxopts::value<double>()->default_value("1.0f"))
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
@@ -248,59 +282,96 @@ int main(int argc, char *argv[])
     ("point_radius", "if not 0, the grid points are considered spheres with the given radius", cxxopts::value<double>()->default_value("0"))
     ("dense_packing", "enable dense packing for the grid point (point_radius must be > 0, spacing is set to 2 times point_radius)", cxxopts::value<bool>()->default_value("false"))
     ("rm_lc_cutoff", "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)", cxxopts::value<double>()->default_value("0"))
-    ("largest_cluster_only", "only keep the largest cluster of close points (uses spacing to determine connectivity)", cxxopts::value<bool>()->default_value("false"));
+    ("largest_cluster_only", "only keep the largest cluster of close points (uses spacing to determine connectivity)", cxxopts::value<bool>()->default_value("false"))
+    ("l,load_yaml_defaults", "get option defaults from the specified file", cxxopts::value<std::string>()->default_value(""));
   // clang-format on
 
   opts.parse_positional("in_file");
 
+  config c;
+
   auto parsed_opts = opts.parse(argc, argv);
+
+  auto yaml_defaults_file = parsed_opts["load_yaml_defaults"].as<std::string>();
+  if (!yaml_defaults_file.empty()) {
+    try {
+      c = parse_yaml_settings(yaml_defaults_file);
+    }
+    catch (YAML::BadFile &e) {
+      std::cerr << "Error parsing yaml file '" << yaml_defaults_file << "'"
+                << std::endl;
+      std::cerr << e.what() << std::endl;
+      std::exit(-1);
+    }
+  }
 
   if (parsed_opts.count("in_file") == 0) {
     std::cerr << "ERROR: You must specify input file\n";
     std::cout << opts.help();
-    return -1;
+    std::exit(-1);
   }
 
   if (parsed_opts.count("site_residues") == 0) {
     std::cerr << "ERROR: You must specify the atoms of the binding site\n";
     std::cout << opts.help();
-    return -1;
+    std::exit(-1);
   }
 
-  auto in_file = parsed_opts["in_file"].as<std::string>();
-  auto out_file = parsed_opts["out_file"].as<std::string>();
-  auto spacing = parsed_opts["spacing"].as<double>();
-  g_verbose = parsed_opts["verbose"].as<bool>();
-  auto residues = parsed_opts["site_residues"].as<std::vector<int>>();
-  bool check_atoms = parsed_opts["rm_atom_overlaps"].as<bool>();
-  auto point_radius = parsed_opts["point_radius"].as<double>();
-  bool dense_packing = parsed_opts["dense_packing"].as<bool>();
-  auto rm_lc_cutoff = parsed_opts["rm_lc_cutoff"].as<double>();
-  bool largest_cluster_only = parsed_opts["largest_cluster_only"].as<bool>();
+#define X(type, name)                \
+  if (parsed_opts.count(#name) != 0) \
+    c.name = parsed_opts[#name].as<type>();
+  ALL_SETTINGS
+#undef X
 
-  if (dense_packing && point_radius == 0) {
+  return c;
+}
+
+void validate_config(config &c)
+{
+  if (c.dense_packing && c.point_radius == 0) {
     std::cerr << "With dense packing, you must specify a point_radius > 0\n";
-    return -1;
+    std::exit(-1);
   }
 
-  if (dense_packing) {
-    spacing = 2 * point_radius;
+  if (c.dense_packing) {
+    c.spacing = 2 * c.point_radius;
   }
 
-  if (point_radius > 0 && spacing < 2 * point_radius) {
+  if (c.point_radius > 0 && c.spacing < 2 * c.point_radius) {
     std::cerr << "If point_radius is set, the spacing must be at least 2 * "
                  "point_radius\n";
-    return -1;
+    std::exit(-1);
+  }
+}
+
+template <>
+struct fmt::formatter<std::vector<int>> {
+  template <typename ParseContextT>
+  typename ParseContextT::iterator parse(ParseContextT &ctx)
+  {
+    return ctx.begin();
   }
 
-  auto pdb_file = std::ifstream(in_file);
+  template <typename FormatContextT>
+  auto format(const std::vector<int> &a, FormatContextT &ctx)
+  {
+    return fmt::format_to(ctx.out(), "{}", fmt::join(a, " "));
+  }
+};
+
+std::vector<Point_3> generate_grid_points(const config &config)
+{
+#define X(type, name) auto &name = config.name;
+  ALL_SETTINGS
+#undef X;
+  auto pdb_file = std::ifstream(config.in_file);
   if (!pdb_file.is_open()) {
     std::cerr << fmt::format("File '{}' does not exist", in_file);
-    return -1;
+    std::exit(-1);
   }
 
   auto pdb = parse_pdb(pdb_file);
-  auto [points, bounds] = get_binding_site(pdb, residues);
+  auto [points, bounds] = get_binding_site(pdb, site_residues);
 
   if (g_verbose) {
     std::cout << fmt::format("Parsed pdb file '{}': {} atoms\n", in_file,
@@ -325,7 +396,7 @@ z    {:.3f}  {:.3f}
   CGAL::convex_hull_3(points.begin(), points.end(), poly);
 
   auto checker = points_checker(poly);
-  if (check_atoms) {
+  if (rm_atom_overlaps) {
     auto radii_file = std::ifstream("radii.json");
     auto radmatch = radius_matcher(radii_file);
     checker.enable_check_atoms(pdb, radmatch, bounds);
@@ -336,7 +407,8 @@ z    {:.3f}  {:.3f}
 
   if (rm_lc_cutoff > 0 || largest_cluster_only) {
     abt::tree3d points;
-    double conn_radius = spacing / 2.0 + std::numeric_limits<double>::epsilon();
+    double conn_radius =
+        config.spacing / 2.0 + std::numeric_limits<double>::epsilon();
     for (const auto &pt : grid_points) {
       points.insert(
           abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, conn_radius));
@@ -355,7 +427,26 @@ z    {:.3f}  {:.3f}
       grid_points.emplace_back(pt.x(), pt.y(), pt.z());
     });
   }
+  return grid_points;
+}
 
+int main(int argc, char *argv[])
+{
+  auto config = parse_cmd_line_settings(argc, argv);
+  validate_config(config);
+
+  g_verbose = config.verbose;
+  if (g_verbose) {
+    fmt::print("Configuration: \n");
+#define X(type, name) fmt::print("  -- {}: {}\n", #name, config.name);
+    ALL_SETTINGS
+#undef X
+  }
+
+  auto grid_points = generate_grid_points(config);
+
+  auto out_file = config.out_file;
+  auto spacing = config.spacing;
   if (out_file.empty()) {
     write_out_pdb(std::cout, grid_points);
   }
