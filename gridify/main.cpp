@@ -4,15 +4,10 @@
 #include <string>
 #include <vector>
 
-#include <fmt/format.h>
-#include <yaml-cpp/yaml.h>
+#include <Eigen/Dense>
 
 #include <cxxopts.hpp>
 
-#include <CGAL/AABB_face_graph_triangle_primitive.h>
-#include <CGAL/Side_of_triangle_mesh.h>
-#include <CGAL/Surface_mesh.h>
-#include <CGAL/Triangulation_3.h>
 #include <CGAL/algorithm.h>
 #include <CGAL/convex_hull_3.h>
 
@@ -240,6 +235,7 @@ void write_out_pdb(std::ostream &out, const std::vector<Point_3> &points)
   X(bool, dense_packing)        \
   X(bool, rm_atom_overlaps)     \
   X(bool, largest_cluster_only) \
+  X(bool, pca_align)            \
   X(double, spacing)            \
   X(double, point_radius)       \
   X(double, rm_lc_cutoff)       \
@@ -283,7 +279,8 @@ config parse_cmd_line_settings(int argc, char *argv[])
     ("dense_packing", "enable dense packing for the grid point (point_radius must be > 0, spacing is set to 2 times point_radius)", cxxopts::value<bool>()->default_value("false"))
     ("rm_lc_cutoff", "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)", cxxopts::value<double>()->default_value("0"))
     ("largest_cluster_only", "only keep the largest cluster of close points (uses spacing to determine connectivity)", cxxopts::value<bool>()->default_value("false"))
-    ("l,load_yaml_defaults", "get option defaults from the specified file", cxxopts::value<std::string>()->default_value(""));
+    ("l,load_yaml_defaults", "get option defaults from the specified file", cxxopts::value<std::string>()->default_value(""))
+    ("pca_align", "align the grid using PCA, with maximum variance on the X axis", cxxopts::value<bool>()->default_value("false"));
   // clang-format on
 
   opts.parse_positional("in_file");
@@ -430,6 +427,8 @@ z    {:.3f}  {:.3f}
   return grid_points;
 }
 
+std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points);
+
 int main(int argc, char *argv[])
 {
   auto config = parse_cmd_line_settings(argc, argv);
@@ -444,6 +443,10 @@ int main(int argc, char *argv[])
   }
 
   auto grid_points = generate_grid_points(config);
+
+  if (config.pca_align) {
+    grid_points = pca_aligned_points(grid_points);
+  }
 
   auto out_file = config.out_file;
   auto spacing = config.spacing;

@@ -5,8 +5,14 @@
 #include <string>
 #include <vector>
 
+#include <CGAL/AABB_face_graph_triangle_primitive.h>
+#include <CGAL/Side_of_triangle_mesh.h>
+#include <CGAL/Surface_mesh.h>
+#include <CGAL/Triangulation_3.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <nlohmann/json.hpp>
+#include <fmt/format.h>
+#include <yaml-cpp/yaml.h>
 
 #include "aabb_tree.hpp"
 
