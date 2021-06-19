@@ -236,13 +236,14 @@ void write_out_pdb(std::ostream &out, const std::vector<Point_3> &points)
   X(bool, rm_atom_overlaps)     \
   X(bool, largest_cluster_only) \
   X(bool, pca_align)            \
+  X(bool, calculate_properties) \
   X(double, spacing)            \
   X(double, point_radius)       \
   X(double, rm_lc_cutoff)       \
   X(std::vector<int>, site_residues)
 
 struct config {
-#define X(type, name) type name;
+#define X(type, name) type name = {};
   ALL_SETTINGS
 #undef X
 };
@@ -280,7 +281,8 @@ config parse_cmd_line_settings(int argc, char *argv[])
     ("rm_lc_cutoff", "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)", cxxopts::value<double>()->default_value("0"))
     ("largest_cluster_only", "only keep the largest cluster of close points (uses spacing to determine connectivity)", cxxopts::value<bool>()->default_value("false"))
     ("l,load_yaml_defaults", "get option defaults from the specified file", cxxopts::value<std::string>()->default_value(""))
-    ("pca_align", "align the grid using PCA, with maximum variance on the X axis", cxxopts::value<bool>()->default_value("false"));
+    ("pca_align", "align the grid using PCA, with maximum variance on the X axis", cxxopts::value<bool>()->default_value("false"))
+    ("c,calculate_properties", "calculate additional properties and output them to stdout or <out_file>.props", cxxopts::value<bool>()->default_value("false"));
   // clang-format on
 
   opts.parse_positional("in_file");
@@ -429,6 +431,74 @@ z    {:.3f}  {:.3f}
 
 std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points);
 
+bounds get_bounds(const std::vector<Point_3> &points);
+
+struct properties {
+  double site_volume;
+  bounds site_bounds;
+  bounds pca_bounds;
+};
+
+double calc_site_volume(const config &c, const std::vector<Point_3> &points)
+{
+  constexpr double PI = 3.14159265359;
+  double sphere_vol = 4 / 3.0 * PI * std::pow((c.spacing / 2.0), 3);
+  double density = PI / 6;
+  if (c.dense_packing) {
+    // See https://en.wikipedia.org/wiki/Close-packing_of_equal_spheres
+    density = 0.74048;
+  }
+  double volume = sphere_vol / density * points.size();
+  return volume;
+}
+
+void insert_remark_group(
+    std::ostream &out,
+    const std::unordered_map<std::string, std::string> &rems)
+{
+  out << "REMARK 100\n";
+  for (const auto &[name, data] : rems) {
+    out << fmt::format("REMARK 100 {} : {}\n", name, data);
+  }
+}
+
+void append_pdb_calc_remarks(std::ostream &out,
+                             const config &c,
+                             const std::vector<Point_3> &site_points,
+                             const std::vector<Point_3> &pca_points)
+{
+  auto volume = calc_site_volume(c, site_points);
+  std::unordered_map<std::string, std::string> props;
+  props["VOLUME"] = fmt::format("{:3f}", volume);
+
+  // SITE BOUNDS
+  auto site_bounds = get_bounds(site_points);
+  props["SITE_BOUNDS_X"] =
+      fmt::format("{:3f} {:3f}", site_bounds.x.first, site_bounds.x.second);
+  props["SITE_BOUNDS_Y"] =
+      fmt::format("{:3f} {:3f}", site_bounds.y.first, site_bounds.y.second);
+  props["SITE_BOUNDS_Z"] =
+      fmt::format("{:3f} {:3f}", site_bounds.z.first, site_bounds.z.second);
+  props["SITE_BOUNDS_DIMS"] = fmt::format(
+      "{:3f} {:3f} {:3f}", site_bounds.x.second - site_bounds.x.first,
+      site_bounds.y.second - site_bounds.y.first,
+      site_bounds.z.second - site_bounds.z.first);
+
+  // PCA_BOUNDS
+  auto pca_bounds = get_bounds(pca_points);
+  props["PCA_BOUNDS_X"] =
+      fmt::format("{:3f} {:3f}", pca_bounds.x.first, pca_bounds.x.second);
+  props["PCA_BOUNDS_Y"] =
+      fmt::format("{:3f} {:3f}", pca_bounds.y.first, pca_bounds.y.second);
+  props["PCA_BOUNDS_Z"] =
+      fmt::format("{:3f} {:3f}", pca_bounds.z.first, pca_bounds.z.second);
+  props["PCA_BOUNDS_DIMS"] =
+      fmt::format("{:3f} {:3f} {:3f}", pca_bounds.x.second - pca_bounds.x.first,
+                  pca_bounds.y.second - pca_bounds.y.first,
+                  pca_bounds.z.second - pca_bounds.z.first);
+  insert_remark_group(out, props);
+}
+
 int main(int argc, char *argv[])
 {
   auto config = parse_cmd_line_settings(argc, argv);
@@ -444,18 +514,33 @@ int main(int argc, char *argv[])
 
   auto grid_points = generate_grid_points(config);
 
-  if (config.pca_align) {
-    grid_points = pca_aligned_points(grid_points);
+  std::vector<Point_3> pca_points;
+
+  std::vector<Point_3> *out_points = &grid_points;
+
+  if (config.calculate_properties || config.pca_align) {
+    pca_points = pca_aligned_points(grid_points);
   }
+
+  if (config.pca_align) {
+    out_points = &pca_points;
+  }
+
+  std::cout << "VOLUME IS " << calc_site_volume(config, grid_points)
+            << std::endl;
 
   auto out_file = config.out_file;
   auto spacing = config.spacing;
+  auto ofs = std::ofstream(out_file);
+  std::ostream *out = &ofs;
   if (out_file.empty()) {
-    write_out_pdb(std::cout, grid_points);
+    out = &std::cout;
   }
-  else {
-    auto ofs = std::ofstream(out_file);
-    write_out_pdb(ofs, grid_points);
+
+  write_out_pdb(*out, *out_points);
+
+  if (config.calculate_properties) {
+    append_pdb_calc_remarks(*out, config, grid_points, pca_points);
   }
 
   if (g_verbose) {

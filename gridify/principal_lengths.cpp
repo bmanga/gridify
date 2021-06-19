@@ -39,3 +39,15 @@ std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points)
                       eig.eigenvectors());
   return result;
 }
+
+bounds get_bounds(const std::vector<Point_3>& points) {
+  auto mat = convert_to_eigen(points);
+  auto cols = mat.colwise();
+  auto mins = cols.minCoeff();
+  auto maxs = cols.maxCoeff();
+
+  return
+  {
+    .x = {mins[0], maxs[0]}, .y = {mins[1], maxs[1]}, .z = {mins[2], maxs[2]}
+  };
+}

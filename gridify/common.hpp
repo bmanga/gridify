@@ -75,7 +75,7 @@ struct radius_matcher {
     }
   }
 
-  double radius(const pdb_entry &entry) const
+  double radius(pdb_entry entry) const
   {
     const auto &resid = entry.residue;
     auto atom = entry.atom;
