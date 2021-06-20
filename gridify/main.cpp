@@ -362,7 +362,7 @@ std::vector<Point_3> generate_grid_points(const config &config)
 {
 #define X(type, name) auto &name = config.name;
   ALL_SETTINGS
-#undef X;
+#undef X
   auto pdb_file = std::ifstream(config.in_file);
   if (!pdb_file.is_open()) {
     std::cerr << fmt::format("File '{}' does not exist", in_file);
@@ -433,12 +433,6 @@ std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points);
 
 bounds get_bounds(const std::vector<Point_3> &points);
 
-struct properties {
-  double site_volume;
-  bounds site_bounds;
-  bounds pca_bounds;
-};
-
 double calc_site_volume(const config &c, const std::vector<Point_3> &points)
 {
   constexpr double PI = 3.14159265359;
@@ -452,15 +446,14 @@ double calc_site_volume(const config &c, const std::vector<Point_3> &points)
   return volume;
 }
 
-void insert_remark_group(
-    std::ostream &out,
-    const std::unordered_map<std::string, std::string> &rems)
-{
-  out << "REMARK 100\n";
-  for (const auto &[name, data] : rems) {
-    out << fmt::format("REMARK 100 {} : {}\n", name, data);
+struct remark_group {
+  remark_group(std::ostream &out) : out(out) { out << "REMARK 100\n"; }
+  void operator()(std::string_view name, std::string_view value)
+  {
+    out << fmt::format("REMARK 100 {} : {}\n", name, value);
   }
-}
+  std::ostream &out;
+};
 
 void append_pdb_calc_remarks(std::ostream &out,
                              const config &c,
@@ -468,35 +461,36 @@ void append_pdb_calc_remarks(std::ostream &out,
                              const std::vector<Point_3> &pca_points)
 {
   auto volume = calc_site_volume(c, site_points);
-  std::unordered_map<std::string, std::string> props;
-  props["VOLUME"] = fmt::format("{:3f}", volume);
+  remark_group props(out);
+  props("VOLUME", fmt::format("{:3f}", volume));
 
   // SITE BOUNDS
   auto site_bounds = get_bounds(site_points);
-  props["SITE_BOUNDS_X"] =
-      fmt::format("{:3f} {:3f}", site_bounds.x.first, site_bounds.x.second);
-  props["SITE_BOUNDS_Y"] =
-      fmt::format("{:3f} {:3f}", site_bounds.y.first, site_bounds.y.second);
-  props["SITE_BOUNDS_Z"] =
-      fmt::format("{:3f} {:3f}", site_bounds.z.first, site_bounds.z.second);
-  props["SITE_BOUNDS_DIMS"] = fmt::format(
-      "{:3f} {:3f} {:3f}", site_bounds.x.second - site_bounds.x.first,
-      site_bounds.y.second - site_bounds.y.first,
-      site_bounds.z.second - site_bounds.z.first);
+  props("SITE_BOUNDS_X", fmt::format("{:.3f} {:.3f}", site_bounds.x.first,
+                                     site_bounds.x.second));
+  props("SITE_BOUNDS_Y", fmt::format("{:.3f} {:.3f}", site_bounds.y.first,
+                                     site_bounds.y.second));
+  props("SITE_BOUNDS_Z", fmt::format("{:.3f} {:.3f}", site_bounds.z.first,
+                                     site_bounds.z.second));
+  props("SITE_BOUNDS_DIMS",
+        fmt::format("{:.3f} {:.3f} {:.3f}",
+                    site_bounds.x.second - site_bounds.x.first,
+                    site_bounds.y.second - site_bounds.y.first,
+                    site_bounds.z.second - site_bounds.z.first));
 
   // PCA_BOUNDS
   auto pca_bounds = get_bounds(pca_points);
-  props["PCA_BOUNDS_X"] =
-      fmt::format("{:3f} {:3f}", pca_bounds.x.first, pca_bounds.x.second);
-  props["PCA_BOUNDS_Y"] =
-      fmt::format("{:3f} {:3f}", pca_bounds.y.first, pca_bounds.y.second);
-  props["PCA_BOUNDS_Z"] =
-      fmt::format("{:3f} {:3f}", pca_bounds.z.first, pca_bounds.z.second);
-  props["PCA_BOUNDS_DIMS"] =
-      fmt::format("{:3f} {:3f} {:3f}", pca_bounds.x.second - pca_bounds.x.first,
-                  pca_bounds.y.second - pca_bounds.y.first,
-                  pca_bounds.z.second - pca_bounds.z.first);
-  insert_remark_group(out, props);
+  props("PCA_BOUNDS_X",
+        fmt::format("{:.3f} {:.3f}", pca_bounds.x.first, pca_bounds.x.second));
+  props("PCA_BOUNDS_Y",
+        fmt::format("{:.3f} {:.3f}", pca_bounds.y.first, pca_bounds.y.second));
+  props("PCA_BOUNDS_Z",
+        fmt::format("{:.3f} {:.3f}", pca_bounds.z.first, pca_bounds.z.second));
+  props("PCA_BOUNDS_DIMS",
+        fmt::format("{:.3f} {:.3f} {:.3f}",
+                    pca_bounds.x.second - pca_bounds.x.first,
+                    pca_bounds.y.second - pca_bounds.y.first,
+                    pca_bounds.z.second - pca_bounds.z.first));
 }
 
 int main(int argc, char *argv[])
