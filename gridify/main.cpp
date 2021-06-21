@@ -16,6 +16,22 @@
 
 bool g_verbose = false;
 
+
+std::string trim(const std::string &s)
+{
+  auto start = s.begin();
+  while (start != s.end() && std::isspace(*start)) {
+    start++;
+  }
+
+  auto end = s.end();
+  do {
+    end--;
+  } while (std::distance(start, end) > 0 && std::isspace(*end));
+
+  return std::string(start, end + 1);
+}
+
 pdb parse_pdb(std::ifstream &ifs)
 {
   pdb result;
@@ -23,6 +39,7 @@ pdb parse_pdb(std::ifstream &ifs)
   std::string str;
 
   while (std::getline(ifs, str)) {
+    str = trim(str);
     if (str == "END") {
       break;
     }
