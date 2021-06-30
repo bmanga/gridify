@@ -16,7 +16,6 @@
 
 bool g_verbose = false;
 
-
 std::string trim(const std::string &s)
 {
   auto start = s.begin();
@@ -321,23 +320,23 @@ config parse_cmd_line_settings(int argc, char *argv[])
     }
   }
 
-  if (parsed_opts.count("in_file") == 0) {
-    std::cerr << "ERROR: You must specify input file\n";
-    std::cout << opts.help();
-    std::exit(-1);
-  }
-
-  if (parsed_opts.count("site_residues") == 0) {
-    std::cerr << "ERROR: You must specify the atoms of the binding site\n";
-    std::cout << opts.help();
-    std::exit(-1);
-  }
-
 #define X(type, name)                \
   if (parsed_opts.count(#name) != 0) \
     c.name = parsed_opts[#name].as<type>();
   ALL_SETTINGS
 #undef X
+
+  if (c.in_file.empty()) {
+    std::cerr << "ERROR: You must specify input file\n";
+    std::cout << opts.help();
+    std::exit(-1);
+  }
+
+  if (c.site_residues.empty()) {
+    std::cerr << "ERROR: You must specify the atoms of the binding site\n";
+    std::cout << opts.help();
+    std::exit(-1);
+  }
 
   return c;
 }
