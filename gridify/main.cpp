@@ -11,8 +11,36 @@
 #include <CGAL/algorithm.h>
 #include <CGAL/convex_hull_3.h>
 
+#include <cds/container/fcpriority_queue.h>
+#include <moodycamel/concurrentqueue.h>
 #include "aabb_tree.hpp"
 #include "common.hpp"
+
+using frame_queue = moodycamel::ConcurrentQueue<pdb_frame>;
+
+struct producer_consumer_queue {
+  std::atomic_bool producer_done = false;
+  std::atomic<int> consumers_done = 0;
+
+  frame_queue frames;
+};
+
+struct site_properties {
+  double volume;
+  bounds site_bounds;
+  bounds pca_bounds;
+};
+
+struct processed_frame {
+  int frame_idx = -1;
+  std::vector<Point_3> out_grid_points;
+  std::optional<site_properties> properties;
+
+  bool operator<(const processed_frame &other) const
+  {
+    return frame_idx > other.frame_idx;
+  }
+};
 
 bool g_verbose = false;
 
@@ -31,18 +59,18 @@ std::string trim(const std::string &s)
   return std::string(start, end + 1);
 }
 
-pdb parse_pdb(std::ifstream &ifs)
+void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
 {
-  pdb result;
-  bounds bounds;
   std::string str;
-
-  auto *frame = &result.frames.emplace_back();
-
+  int frame_idx = 0;
+  int num_atoms = 0;
+  auto frame = pdb_frame{frame_idx++};
   while (std::getline(ifs, str)) {
     str = trim(str);
     if (str == "END") {
-      frame = &result.frames.emplace_back();
+      queue.frames.enqueue(std::move(frame));
+
+      frame = pdb_frame{frame_idx++};
       continue;
     }
     std::istringstream iss(str);
@@ -62,18 +90,16 @@ pdb parse_pdb(std::ifstream &ifs)
     float x, y, z;
     iss >> x >> y >> z;
     auto entry = pdb_atom_entry{{x, y, z}, residue, atom, atom_id, residue_id};
-    frame->atoms.push_back(std::move(entry));
+    ++num_atoms;
+    frame.atoms.push_back(std::move(entry));
   }
-  if (result.frames.back().atoms.empty()) {
-    result.frames.pop_back();
-  }
+
+  queue.producer_done = true;
 
   if (g_verbose) {
     std::cout << fmt::format("Parsed pdb file: {} frames with {} atoms each\n",
-                             result.frames.size(),
-                             result.frames.back().atoms.size());
+                             frame_idx, num_atoms / frame_idx);
   }
-  return result;
 }
 
 std::pair<std::vector<Point_3>, bounds> get_binding_site(
@@ -242,22 +268,74 @@ void keep_largest_cluster_only(abt::tree3d &grid)
   }
 }
 
-void write_out_pdb_header(std::ostream &out)
+void write_out_pdb_header(std::FILE *out)
 {
-  out << "CRYST1    0.000    0.000    0.000  90.00  90.00  90.00 P 1           "
-         "1\n";
+  fmt::print(
+      out,
+      "CRYST1    0.000    0.000    0.000  90.00  90.00  90.00 P 1           "
+      "1\n");
 }
 
-void write_out_pdb_frame(std::ostream &out, const std::vector<Point_3> &points)
+struct remark_group {
+  remark_group(std::FILE *out) : out(out) { fmt::print(out, "REMARK 100\n"); }
+  void operator()(std::string_view name, std::string_view value)
+  {
+    fmt::print(out, "REMARK 100 {} : {}\n", name, value);
+  }
+  std::FILE *out;
+};
+
+void write_out_pdb_frame_remarks(std::FILE *out,
+                                 const site_properties &sp,
+                                 int frame_idx)
+{
+  const auto &[volume, site_bounds, pca_bounds] = sp;
+  remark_group props(out);
+  props("FRAME", std::to_string(frame_idx));
+  props("VOLUME", fmt::format("{:3f}", volume));
+
+  // SITE BOUNDS
+  props("SITE_BOUNDS_X", fmt::format("{:.3f} {:.3f}", site_bounds.x.first,
+                                     site_bounds.x.second));
+  props("SITE_BOUNDS_Y", fmt::format("{:.3f} {:.3f}", site_bounds.y.first,
+                                     site_bounds.y.second));
+  props("SITE_BOUNDS_Z", fmt::format("{:.3f} {:.3f}", site_bounds.z.first,
+                                     site_bounds.z.second));
+  props("SITE_BOUNDS_DIMS",
+        fmt::format("{:.3f} {:.3f} {:.3f}",
+                    site_bounds.x.second - site_bounds.x.first,
+                    site_bounds.y.second - site_bounds.y.first,
+                    site_bounds.z.second - site_bounds.z.first));
+
+  // PCA_BOUNDS
+  props("PCA_BOUNDS_X",
+        fmt::format("{:.3f} {:.3f}", pca_bounds.x.first, pca_bounds.x.second));
+  props("PCA_BOUNDS_Y",
+        fmt::format("{:.3f} {:.3f}", pca_bounds.y.first, pca_bounds.y.second));
+  props("PCA_BOUNDS_Z",
+        fmt::format("{:.3f} {:.3f}", pca_bounds.z.first, pca_bounds.z.second));
+  props("PCA_BOUNDS_DIMS",
+        fmt::format("{:.3f} {:.3f} {:.3f}",
+                    pca_bounds.x.second - pca_bounds.x.first,
+                    pca_bounds.y.second - pca_bounds.y.first,
+                    pca_bounds.z.second - pca_bounds.z.first));
+}
+
+void write_out_pdb_frame(std::FILE *out, const processed_frame &pf)
 {
   int cnt = 0;
   int resID = 0;
-  for (const auto &pt : points) {
-    out << fmt::format(
+  for (const auto &pt : pf.out_grid_points) {
+    fmt::print(
+        out,
         "HETATM{:>5}  C   PTH {:>5}{:>12.3f}{:>8.3f}{:>8.3f}  0.00  0.00\n",
         ++cnt, ++resID, pt.x(), pt.y(), pt.z());
   }
-  out << "END\n";
+
+  if (pf.properties.has_value()) {
+    write_out_pdb_frame_remarks(out, *pf.properties, pf.frame_idx);
+  }
+  fmt::print(out, "END\n");
 }
 
 #define ALL_SETTINGS            \
@@ -390,27 +468,18 @@ struct fmt::formatter<std::vector<int>> {
   }
 };
 
-std::vector<std::vector<Point_3>> generate_grid_points(const config &config)
+std::vector<Point_3> generate_grid_points(const config &config,
+                                          const pdb_frame &frame)
 {
 #define X(type, name) auto &name = config.name;
   ALL_SETTINGS
 #undef X
-  auto pdb_file = std::ifstream(config.in_file);
-  if (!pdb_file.is_open()) {
-    std::cerr << fmt::format("File '{}' does not exist", in_file);
-    std::exit(-1);
-  }
-
-  auto pdb = parse_pdb(pdb_file);
 
   std::vector<std::vector<Point_3>> result;
-  int frame_cnt = 0;
-  for (const auto &frame : pdb.frames) {
-    ++frame_cnt;
-    auto [points, bounds] = get_binding_site(frame, site_residues);
+  auto [points, bounds] = get_binding_site(frame, site_residues);
 
-    if (g_verbose) {
-      std::cout << fmt::format(R"(
+  if (g_verbose) {
+    std::cout << fmt::format(R"(
 --- Binding site info [FRAME {}] ---
 Number of atoms specified: {}
 Bounds are: 
@@ -419,50 +488,48 @@ x    {:.3f}  {:.3f}
 y    {:.3f}  {:.3f}
 z    {:.3f}  {:.3f}
 )",
-                               frame_cnt, points.size(), bounds.x.first,
-                               bounds.x.second, bounds.y.first, bounds.y.second,
-                               bounds.z.first, bounds.z.second);
-    }
-
-    Surface_Mesh poly;
-    CGAL::convex_hull_3(points.begin(), points.end(), poly);
-
-    auto checker = points_checker(poly);
-    if (rm_atom_overlaps) {
-      auto radii_file = std::ifstream("radii.json");
-      auto radmatch = radius_matcher(radii_file);
-      checker.enable_check_atoms(frame, radmatch, bounds);
-    }
-
-    auto grid_points =
-        gen_grid(checker, poly, bounds, spacing, point_radius, dense_packing);
-
-    if (rm_lc_cutoff > 0 || largest_cluster_only) {
-      abt::tree3d points;
-      double conn_radius =
-          config.spacing / 2.0 + std::numeric_limits<double>::epsilon();
-      for (const auto &pt : grid_points) {
-        points.insert(
-            abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, conn_radius));
-      }
-
-      if (rm_lc_cutoff > 0) {
-        rm_low_connectivity_points(points, spacing, rm_lc_cutoff);
-      }
-      if (largest_cluster_only) {
-        keep_largest_cluster_only(points);
-      }
-
-      grid_points.clear();
-      points.for_each([&](unsigned id, const auto &bb) {
-        auto pt = bb.centre;
-        grid_points.emplace_back(pt.x(), pt.y(), pt.z());
-      });
-    }
-    result.push_back(std::move(grid_points));
+                             frame.frame_idx, points.size(), bounds.x.first,
+                             bounds.x.second, bounds.y.first, bounds.y.second,
+                             bounds.z.first, bounds.z.second);
   }
 
-  return result;
+  Surface_Mesh poly;
+  CGAL::convex_hull_3(points.begin(), points.end(), poly);
+
+  auto checker = points_checker(poly);
+  if (rm_atom_overlaps) {
+    auto radii_file = std::ifstream("radii.json");
+    auto radmatch = radius_matcher(radii_file);
+    checker.enable_check_atoms(frame, radmatch, bounds);
+  }
+
+  auto grid_points =
+      gen_grid(checker, poly, bounds, spacing, point_radius, dense_packing);
+
+  if (rm_lc_cutoff > 0 || largest_cluster_only) {
+    abt::tree3d points;
+    double conn_radius =
+        config.spacing / 2.0 + std::numeric_limits<double>::epsilon();
+    for (const auto &pt : grid_points) {
+      points.insert(
+          abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, conn_radius));
+    }
+
+    if (rm_lc_cutoff > 0) {
+      rm_low_connectivity_points(points, spacing, rm_lc_cutoff);
+    }
+    if (largest_cluster_only) {
+      keep_largest_cluster_only(points);
+    }
+
+    grid_points.clear();
+    points.for_each([&](unsigned id, const auto &bb) {
+      auto pt = bb.centre;
+      grid_points.emplace_back(pt.x(), pt.y(), pt.z());
+    });
+  }
+
+  return grid_points;
 }
 
 std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points);
@@ -482,51 +549,40 @@ double calc_site_volume(const config &c, const std::vector<Point_3> &points)
   return volume;
 }
 
-struct remark_group {
-  remark_group(std::ostream &out) : out(out) { out << "REMARK 100\n"; }
-  void operator()(std::string_view name, std::string_view value)
-  {
-    out << fmt::format("REMARK 100 {} : {}\n", name, value);
-  }
-  std::ostream &out;
-};
+using priority_queue = cds::container::FCPriorityQueue<processed_frame>;
 
-void append_pdb_calc_remarks(std::ostream &out,
-                             const config &c,
-                             const std::vector<Point_3> &site_points,
-                             const std::vector<Point_3> &pca_points)
+site_properties calc_site_properties(const config &c,
+                                     const std::vector<Point_3> &site_points,
+                                     const std::vector<Point_3> &pca_points)
 {
-  auto volume = calc_site_volume(c, site_points);
-  remark_group props(out);
-  props("VOLUME", fmt::format("{:3f}", volume));
+  return {calc_site_volume(c, site_points), get_bounds(site_points),
+          get_bounds(pca_points)};
+}
 
-  // SITE BOUNDS
-  auto site_bounds = get_bounds(site_points);
-  props("SITE_BOUNDS_X", fmt::format("{:.3f} {:.3f}", site_bounds.x.first,
-                                     site_bounds.x.second));
-  props("SITE_BOUNDS_Y", fmt::format("{:.3f} {:.3f}", site_bounds.y.first,
-                                     site_bounds.y.second));
-  props("SITE_BOUNDS_Z", fmt::format("{:.3f} {:.3f}", site_bounds.z.first,
-                                     site_bounds.z.second));
-  props("SITE_BOUNDS_DIMS",
-        fmt::format("{:.3f} {:.3f} {:.3f}",
-                    site_bounds.x.second - site_bounds.x.first,
-                    site_bounds.y.second - site_bounds.y.first,
-                    site_bounds.z.second - site_bounds.z.first));
+processed_frame process_frame(const config &config, pdb_frame &frame)
+{
+  fmt::print("-- Processing frame {}\n", frame.frame_idx);
+  auto result = processed_frame{frame.frame_idx};
 
-  // PCA_BOUNDS
-  auto pca_bounds = get_bounds(pca_points);
-  props("PCA_BOUNDS_X",
-        fmt::format("{:.3f} {:.3f}", pca_bounds.x.first, pca_bounds.x.second));
-  props("PCA_BOUNDS_Y",
-        fmt::format("{:.3f} {:.3f}", pca_bounds.y.first, pca_bounds.y.second));
-  props("PCA_BOUNDS_Z",
-        fmt::format("{:.3f} {:.3f}", pca_bounds.z.first, pca_bounds.z.second));
-  props("PCA_BOUNDS_DIMS",
-        fmt::format("{:.3f} {:.3f} {:.3f}",
-                    pca_bounds.x.second - pca_bounds.x.first,
-                    pca_bounds.y.second - pca_bounds.y.first,
-                    pca_bounds.z.second - pca_bounds.z.first));
+  auto grid_points = generate_grid_points(config, frame);
+
+  std::vector<Point_3> pca_points;
+  std::vector<Point_3> *out_points = &grid_points;
+
+  if (config.calculate_properties || config.pca_align) {
+    pca_points = pca_aligned_points(grid_points);
+  }
+
+  if (config.pca_align) {
+    out_points = &pca_points;
+  }
+
+  if (config.calculate_properties) {
+    result.properties = calc_site_properties(config, grid_points, pca_points);
+  }
+
+  result.out_grid_points = std::move(*out_points);
+  return result;
 }
 
 int main(int argc, char *argv[])
@@ -542,38 +598,78 @@ int main(int argc, char *argv[])
 #undef X
   }
 
-  auto frame_grids = generate_grid_points(config);
-
-  auto out_file = config.out_file;
-  auto spacing = config.spacing;
-  auto ofs = std::ofstream(out_file);
-  std::ostream *out = &ofs;
-  if (out_file.empty()) {
-    out = &std::cout;
+  auto pdb_file = std::ifstream(config.in_file);
+  if (!pdb_file.is_open()) {
+    std::cerr << fmt::format("File '{}' does not exist", config.in_file);
+    std::exit(-1);
   }
 
-  write_out_pdb_header(*out);
+  producer_consumer_queue queue;
 
-  for (auto &grid_points : frame_grids) {
-    std::vector<Point_3> pca_points;
+  std::thread producer([&] { parse_pdb(pdb_file, queue); });
 
-    std::vector<Point_3> *out_points = &grid_points;
+  priority_queue processed_frames;
 
-    if (config.calculate_properties || config.pca_align) {
-      pca_points = pca_aligned_points(grid_points);
-    }
-
-    if (config.pca_align) {
-      out_points = &pca_points;
-    }
-
-    std::cout << "VOLUME IS " << calc_site_volume(config, grid_points)
-              << std::endl;
-
-    write_out_pdb_frame(*out, *out_points);
-
-    if (config.calculate_properties) {
-      append_pdb_calc_remarks(*out, config, grid_points, pca_points);
-    }
+  std::vector<std::thread> consumers;
+  int num_consumers = 12;
+  for (int j = 0; j < num_consumers; ++j) {
+    consumers.emplace_back([&] {
+      bool items_left = false;
+      pdb_frame frame;
+      do {
+        items_left = !queue.producer_done;
+        while (queue.frames.try_dequeue(frame)) {
+          items_left = true;
+          processed_frames.push(process_frame(config, frame));
+        }
+      } while (items_left ||
+               queue.consumers_done.fetch_add(1, std::memory_order_acq_rel) +
+                       1 ==
+                   num_consumers);
+    });
   }
+
+  std::thread writer([&] {
+    auto out_file = config.out_file;
+    std::FILE *out = stdout;
+
+    if (!out_file.empty()) {
+      out = std::fopen(out_file.c_str(), "w");
+    }
+
+    write_out_pdb_header(out);
+
+    int top_frame_idx = -1;
+    int next_frame = 0;
+    while (!processed_frames.empty() ||
+           queue.consumers_done != num_consumers + 1) {
+      if (processed_frames.empty()) {
+        continue;
+      }
+      do {
+        processed_frames.apply([&](const auto &queue) {
+          if (!queue.empty()) {
+            top_frame_idx = queue.top().frame_idx;
+          }
+        });
+      } while (top_frame_idx != next_frame &&
+               (queue.consumers_done != num_consumers + 1));
+      ++next_frame;
+      processed_frame pf;
+
+      if (processed_frames.pop(pf)) {
+        fmt::print("-- writing frame {}\n", pf.frame_idx);
+        write_out_pdb_frame(out, pf);
+      }
+    }
+    if (!out_file.empty()) {
+      std::fclose(out);
+    }
+  });
+
+  producer.join();
+  for (auto &c : consumers) {
+    c.join();
+  }
+  writer.join();
 }

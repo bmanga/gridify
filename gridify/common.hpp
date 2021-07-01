@@ -46,6 +46,7 @@ struct pdb_atom_entry {
 };
 
 struct pdb_frame {
+  int frame_idx;
   std::vector<pdb_atom_entry> atoms;
 };
 
