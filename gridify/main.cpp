@@ -37,10 +37,13 @@ pdb parse_pdb(std::ifstream &ifs)
   bounds bounds;
   std::string str;
 
+  auto *frame = &result.frames.emplace_back();
+
   while (std::getline(ifs, str)) {
     str = trim(str);
     if (str == "END") {
-      break;
+      frame = &result.frames.emplace_back();
+      continue;
     }
     std::istringstream iss(str);
     std::string unused, atom, residue;
@@ -58,25 +61,34 @@ pdb parse_pdb(std::ifstream &ifs)
 
     float x, y, z;
     iss >> x >> y >> z;
-    auto entry = pdb_entry{{x, y, z}, residue, atom, atom_id, residue_id};
-    result.atoms.push_back(std::move(entry));
+    auto entry = pdb_atom_entry{{x, y, z}, residue, atom, atom_id, residue_id};
+    frame->atoms.push_back(std::move(entry));
+  }
+  if (result.frames.back().atoms.empty()) {
+    result.frames.pop_back();
+  }
+
+  if (g_verbose) {
+    std::cout << fmt::format("Parsed pdb file: {} frames with {} atoms each\n",
+                             result.frames.size(),
+                             result.frames.back().atoms.size());
   }
   return result;
 }
 
 std::pair<std::vector<Point_3>, bounds> get_binding_site(
-    const pdb &pdb,
+    const pdb_frame &frame,
     const std::vector<int> &residues)
 {
   std::vector<Point_3> points;
   bounds bounds;
 
   struct Comp {
-    bool operator()(const pdb_entry &s, int i) const
+    bool operator()(const pdb_atom_entry &s, int i) const
     {
       return s.residue_id < i;
     }
-    bool operator()(int i, const pdb_entry &s) const
+    bool operator()(int i, const pdb_atom_entry &s) const
     {
       return i < s.residue_id;
     }
@@ -84,7 +96,7 @@ std::pair<std::vector<Point_3>, bounds> get_binding_site(
 
   for (int id : residues) {
     auto [begin, end] =
-        std::equal_range(pdb.atoms.begin(), pdb.atoms.end(), id, Comp{});
+        std::equal_range(frame.atoms.begin(), frame.atoms.end(), id, Comp{});
 
     for (auto it = begin; it != end; ++it) {
       const auto &pos = it->pos;
@@ -230,10 +242,14 @@ void keep_largest_cluster_only(abt::tree3d &grid)
   }
 }
 
-void write_out_pdb(std::ostream &out, const std::vector<Point_3> &points)
+void write_out_pdb_header(std::ostream &out)
 {
   out << "CRYST1    0.000    0.000    0.000  90.00  90.00  90.00 P 1           "
          "1\n";
+}
+
+void write_out_pdb_frame(std::ostream &out, const std::vector<Point_3> &points)
+{
   int cnt = 0;
   int resID = 0;
   for (const auto &pt : points) {
@@ -374,7 +390,7 @@ struct fmt::formatter<std::vector<int>> {
   }
 };
 
-std::vector<Point_3> generate_grid_points(const config &config)
+std::vector<std::vector<Point_3>> generate_grid_points(const config &config)
 {
 #define X(type, name) auto &name = config.name;
   ALL_SETTINGS
@@ -386,15 +402,16 @@ std::vector<Point_3> generate_grid_points(const config &config)
   }
 
   auto pdb = parse_pdb(pdb_file);
-  auto [points, bounds] = get_binding_site(pdb, site_residues);
 
-  if (g_verbose) {
-    std::cout << fmt::format("Parsed pdb file '{}': {} atoms\n", in_file,
-                             pdb.atoms.size());
-    std::cout << fmt::format("Binding site info: Num residues {}, : {} atoms\n",
-                             in_file, pdb.atoms.size());
-    std::cout << fmt::format(R"(
---- Binding site info ---
+  std::vector<std::vector<Point_3>> result;
+  int frame_cnt = 0;
+  for (const auto &frame : pdb.frames) {
+    ++frame_cnt;
+    auto [points, bounds] = get_binding_site(frame, site_residues);
+
+    if (g_verbose) {
+      std::cout << fmt::format(R"(
+--- Binding site info [FRAME {}] ---
 Number of atoms specified: {}
 Bounds are: 
      MIN     MAX
@@ -402,47 +419,50 @@ x    {:.3f}  {:.3f}
 y    {:.3f}  {:.3f}
 z    {:.3f}  {:.3f}
 )",
-                             points.size(), bounds.x.first, bounds.x.second,
-                             bounds.y.first, bounds.y.second, bounds.z.first,
-                             bounds.z.second);
-  }
-
-  Surface_Mesh poly;
-  CGAL::convex_hull_3(points.begin(), points.end(), poly);
-
-  auto checker = points_checker(poly);
-  if (rm_atom_overlaps) {
-    auto radii_file = std::ifstream("radii.json");
-    auto radmatch = radius_matcher(radii_file);
-    checker.enable_check_atoms(pdb, radmatch, bounds);
-  }
-
-  auto grid_points =
-      gen_grid(checker, poly, bounds, spacing, point_radius, dense_packing);
-
-  if (rm_lc_cutoff > 0 || largest_cluster_only) {
-    abt::tree3d points;
-    double conn_radius =
-        config.spacing / 2.0 + std::numeric_limits<double>::epsilon();
-    for (const auto &pt : grid_points) {
-      points.insert(
-          abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, conn_radius));
+                               frame_cnt, points.size(), bounds.x.first,
+                               bounds.x.second, bounds.y.first, bounds.y.second,
+                               bounds.z.first, bounds.z.second);
     }
 
-    if (rm_lc_cutoff > 0) {
-      rm_low_connectivity_points(points, spacing, rm_lc_cutoff);
-    }
-    if (largest_cluster_only) {
-      keep_largest_cluster_only(points);
+    Surface_Mesh poly;
+    CGAL::convex_hull_3(points.begin(), points.end(), poly);
+
+    auto checker = points_checker(poly);
+    if (rm_atom_overlaps) {
+      auto radii_file = std::ifstream("radii.json");
+      auto radmatch = radius_matcher(radii_file);
+      checker.enable_check_atoms(frame, radmatch, bounds);
     }
 
-    grid_points.clear();
-    points.for_each([&](unsigned id, const auto &bb) {
-      auto pt = bb.centre;
-      grid_points.emplace_back(pt.x(), pt.y(), pt.z());
-    });
+    auto grid_points =
+        gen_grid(checker, poly, bounds, spacing, point_radius, dense_packing);
+
+    if (rm_lc_cutoff > 0 || largest_cluster_only) {
+      abt::tree3d points;
+      double conn_radius =
+          config.spacing / 2.0 + std::numeric_limits<double>::epsilon();
+      for (const auto &pt : grid_points) {
+        points.insert(
+            abt::aabb3d::of_sphere({pt.x(), pt.y(), pt.z()}, conn_radius));
+      }
+
+      if (rm_lc_cutoff > 0) {
+        rm_low_connectivity_points(points, spacing, rm_lc_cutoff);
+      }
+      if (largest_cluster_only) {
+        keep_largest_cluster_only(points);
+      }
+
+      grid_points.clear();
+      points.for_each([&](unsigned id, const auto &bb) {
+        auto pt = bb.centre;
+        grid_points.emplace_back(pt.x(), pt.y(), pt.z());
+      });
+    }
+    result.push_back(std::move(grid_points));
   }
-  return grid_points;
+
+  return result;
 }
 
 std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points);
@@ -522,22 +542,7 @@ int main(int argc, char *argv[])
 #undef X
   }
 
-  auto grid_points = generate_grid_points(config);
-
-  std::vector<Point_3> pca_points;
-
-  std::vector<Point_3> *out_points = &grid_points;
-
-  if (config.calculate_properties || config.pca_align) {
-    pca_points = pca_aligned_points(grid_points);
-  }
-
-  if (config.pca_align) {
-    out_points = &pca_points;
-  }
-
-  std::cout << "VOLUME IS " << calc_site_volume(config, grid_points)
-            << std::endl;
+  auto frame_grids = generate_grid_points(config);
 
   auto out_file = config.out_file;
   auto spacing = config.spacing;
@@ -547,16 +552,28 @@ int main(int argc, char *argv[])
     out = &std::cout;
   }
 
-  write_out_pdb(*out, *out_points);
+  write_out_pdb_header(*out);
 
-  if (config.calculate_properties) {
-    append_pdb_calc_remarks(*out, config, grid_points, pca_points);
-  }
+  for (auto &grid_points : frame_grids) {
+    std::vector<Point_3> pca_points;
 
-  if (g_verbose) {
-    std::cout << fmt::format(
-        "Generated grid to output '{}': {} grid points with spacing of "
-        "{:.4f}\n",
-        out_file, grid_points.size(), spacing);
+    std::vector<Point_3> *out_points = &grid_points;
+
+    if (config.calculate_properties || config.pca_align) {
+      pca_points = pca_aligned_points(grid_points);
+    }
+
+    if (config.pca_align) {
+      out_points = &pca_points;
+    }
+
+    std::cout << "VOLUME IS " << calc_site_volume(config, grid_points)
+              << std::endl;
+
+    write_out_pdb_frame(*out, *out_points);
+
+    if (config.calculate_properties) {
+      append_pdb_calc_remarks(*out, config, grid_points, pca_points);
+    }
   }
 }

@@ -37,7 +37,7 @@ void vlog(Ts &&...ts)
   }
 }
 
-struct pdb_entry {
+struct pdb_atom_entry {
   Point_3 pos;
   std::string residue;
   std::string atom;
@@ -45,8 +45,12 @@ struct pdb_entry {
   int residue_id;
 };
 
+struct pdb_frame {
+  std::vector<pdb_atom_entry> atoms;
+};
+
 struct pdb {
-  std::vector<pdb_entry> atoms;
+  std::vector<pdb_frame> frames;
 };
 
 struct bounds {
@@ -75,7 +79,7 @@ struct radius_matcher {
     }
   }
 
-  double radius(pdb_entry entry) const
+  double radius(pdb_atom_entry entry) const
   {
     const auto &resid = entry.residue;
     auto atom = entry.atom;
@@ -163,14 +167,14 @@ struct points_checker {
     return true;
   }
 
-  void enable_check_atoms(const pdb &pdb,
+  void enable_check_atoms(const pdb_frame &frame,
                           const radius_matcher &radius_matcher,
                           const bounds &bs_bounds)
   {
     abt::tree3d atoms_tree;
     int cnt = 0;
 
-    for (const auto &atom : pdb.atoms) {
+    for (const auto &atom : frame.atoms) {
       // TODO: use csv.
       float radius = radius_matcher.radius(atom);
       if (radius == 0) {
