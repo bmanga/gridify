@@ -68,6 +68,10 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
   while (std::getline(ifs, str)) {
     str = trim(str);
     if (str == "END") {
+      // Slow down if the consumers can't keep up to avoid memory bloat.
+      while (queue.frames.size_approx() > 200) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      }
       queue.frames.enqueue(std::move(frame));
 
       frame = pdb_frame{frame_idx++};
@@ -341,6 +345,7 @@ void write_out_pdb_frame(std::FILE *out, const processed_frame &pf)
 #define ALL_SETTINGS            \
   X(std::string, in_file)       \
   X(std::string, out_file)      \
+  X(unsigned, jobs)             \
   X(bool, verbose)              \
   X(bool, dense_packing)        \
   X(bool, rm_atom_overlaps)     \
@@ -384,6 +389,7 @@ config parse_cmd_line_settings(int argc, char *argv[])
     ("o,out_file", "output file (stdout if omitted)",cxxopts::value<std::string>()->default_value(""))
     ("s,spacing", "grid spacing", cxxopts::value<double>()->default_value("1.0f"))
     ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
+    ("j,jobs", "number of worker threads (0 for automatic)", cxxopts::value<unsigned>()->default_value("0"))
     ("r,site_residues", "list of residues ids that make up the binding site", cxxopts::value<std::vector<int>>())
     ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"))
     ("point_radius", "if not 0, the grid points are considered spheres with the given radius", cxxopts::value<double>()->default_value("0"))
@@ -450,6 +456,10 @@ void validate_config(config &c)
     std::cerr << "If point_radius is set, the spacing must be at least 2 * "
                  "point_radius\n";
     std::exit(-1);
+  }
+
+  if (c.jobs == 0) {
+    c.jobs = std::thread::hardware_concurrency();
   }
 }
 
@@ -611,7 +621,7 @@ int main(int argc, char *argv[])
   priority_queue processed_frames;
 
   std::vector<std::thread> consumers;
-  int num_consumers = 12;
+  int num_consumers = config.jobs;
   for (int j = 0; j < num_consumers; ++j) {
     consumers.emplace_back([&] {
       bool items_left = false;
@@ -644,6 +654,7 @@ int main(int argc, char *argv[])
     while (!processed_frames.empty() ||
            queue.consumers_done != num_consumers + 1) {
       if (processed_frames.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         continue;
       }
       do {
