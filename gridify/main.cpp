@@ -15,8 +15,27 @@
 #include "aabb_tree.hpp"
 #include "common.hpp"
 
+#define ALL_SETTINGS            \
+  X(std::string, in_file)       \
+  X(std::string, out_file)      \
+  X(unsigned, jobs)             \
+  X(bool, verbose)              \
+  X(bool, dense_packing)        \
+  X(bool, rm_atom_overlaps)     \
+  X(bool, largest_cluster_only) \
+  X(bool, pca_align)            \
+  X(bool, calculate_properties) \
+  X(double, spacing)            \
+  X(double, point_radius)       \
+  X(double, rm_lc_cutoff)       \
+  X(std::vector<int>, site_residues)
 
+struct config {
+#define X(type, name) type name = {};
+  ALL_SETTINGS
+#undef X
 };
+
 
 struct site_properties {
   double volume;
@@ -206,22 +225,42 @@ void keep_largest_cluster_only(abt::tree3d &grid)
   }
 }
 
-void write_out_pdb_header(std::FILE *out)
+struct remark_group {
+  remark_group(std::FILE *out) : out(out) { fmt::print(out, "REMARK 100\n"); }
+
+  template <class T>
+  void operator()(std::string_view name, const T &value)
+  {
+    fmt::print(out, "REMARK 100 {} : {}\n", name, value);
+  }
+
+  void operator()(std::string_view name)
+  {
+    fmt::print(out, "REMARK 100 {}\n", name);
+  }
+  std::FILE *out;
+};
+
+void write_out_config_remarks(std::FILE *out, const config &c) {
+  remark_group props(out);
+  props("GENERATED FROM THE FOLLOWING CONFIGURATION");
+
+#define X(type, name)             \
+  props(#name, c.name);
+
+  ALL_SETTINGS
+
+#undef X
+}
+
+void write_out_pdb_header(std::FILE *out, const config &c)
 {
+  write_out_config_remarks(out, c);
   fmt::print(
       out,
       "CRYST1    0.000    0.000    0.000  90.00  90.00  90.00 P 1           "
       "1\n");
 }
-
-struct remark_group {
-  remark_group(std::FILE *out) : out(out) { fmt::print(out, "REMARK 100\n"); }
-  void operator()(std::string_view name, std::string_view value)
-  {
-    fmt::print(out, "REMARK 100 {} : {}\n", name, value);
-  }
-  std::FILE *out;
-};
 
 void write_out_pdb_frame_remarks(std::FILE *out,
                                  const site_properties &sp,
@@ -275,27 +314,6 @@ void write_out_pdb_frame(std::FILE *out, const processed_frame &pf)
   }
   fmt::print(out, "END\n");
 }
-
-#define ALL_SETTINGS            \
-  X(std::string, in_file)       \
-  X(std::string, out_file)      \
-  X(unsigned, jobs)             \
-  X(bool, verbose)              \
-  X(bool, dense_packing)        \
-  X(bool, rm_atom_overlaps)     \
-  X(bool, largest_cluster_only) \
-  X(bool, pca_align)            \
-  X(bool, calculate_properties) \
-  X(double, spacing)            \
-  X(double, point_radius)       \
-  X(double, rm_lc_cutoff)       \
-  X(std::vector<int>, site_residues)
-
-struct config {
-#define X(type, name) type name = {};
-  ALL_SETTINGS
-#undef X
-};
 
 config parse_yaml_settings(const std::string &file)
 {
@@ -581,7 +599,7 @@ int main(int argc, char *argv[])
       out = std::fopen(out_file.c_str(), "w");
     }
 
-    write_out_pdb_header(out);
+    write_out_pdb_header(out, config);
 
     int top_frame_idx = -1;
     int next_frame = 0;
