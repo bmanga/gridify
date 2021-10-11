@@ -5,27 +5,19 @@
 #include <string>
 #include <vector>
 
-#include <CGAL/AABB_face_graph_triangle_primitive.h>
-#include <CGAL/Side_of_triangle_mesh.h>
-#include <CGAL/Surface_mesh.h>
-#include <CGAL/Triangulation_3.h>
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+
 #include <nlohmann/json.hpp>
 #include <fmt/format.h>
 #include <yaml-cpp/yaml.h>
 
 #include "aabb_tree.hpp"
 
-using json = nlohmann::json;
-using K = CGAL::Exact_predicates_inexact_constructions_kernel;
-using Point_3 = K::Point_3;
-using Vector_3 = K::Vector_3;
-using Surface_Mesh = CGAL::Surface_mesh<Point_3>;
+#include <common/common.h>
+#include <common/pdb.h>
 
-using Primitive = CGAL::AABB_face_graph_triangle_primitive<Surface_Mesh>;
-using Traits = CGAL::AABB_traits<K, Primitive>;
-using Tree = CGAL::AABB_tree<Traits>;
-using Point_inside = CGAL::Side_of_triangle_mesh<Surface_Mesh, K>;
+using json = nlohmann::json;
+
+
 
 extern bool g_verbose;
 
@@ -36,23 +28,6 @@ void vlog(Ts &&...ts)
     fmt::print(std::forward<Ts>(ts)...);
   }
 }
-
-struct pdb_atom_entry {
-  Point_3 pos;
-  std::string residue;
-  std::string atom;
-  int atom_id;
-  int residue_id;
-};
-
-struct pdb_frame {
-  int frame_idx;
-  std::vector<pdb_atom_entry> atoms;
-};
-
-struct pdb {
-  std::vector<pdb_frame> frames;
-};
 
 struct bounds {
   static constexpr std::pair<float, float> INIT = {

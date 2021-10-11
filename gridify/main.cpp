@@ -12,17 +12,10 @@
 #include <CGAL/convex_hull_3.h>
 
 #include <cds/container/fcpriority_queue.h>
-#include <moodycamel/concurrentqueue.h>
 #include "aabb_tree.hpp"
 #include "common.hpp"
 
-using frame_queue = moodycamel::ConcurrentQueue<pdb_frame>;
 
-struct producer_consumer_queue {
-  std::atomic_bool producer_done = false;
-  std::atomic<int> consumers_done = 0;
-
-  frame_queue frames;
 };
 
 struct site_properties {
@@ -44,67 +37,8 @@ struct processed_frame {
 
 bool g_verbose = false;
 
-std::string trim(const std::string &s)
-{
-  auto start = s.begin();
-  while (start != s.end() && std::isspace(*start)) {
-    start++;
-  }
 
-  auto end = s.end();
-  do {
-    end--;
-  } while (std::distance(start, end) > 0 && std::isspace(*end));
 
-  return std::string(start, end + 1);
-}
-
-void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
-{
-  std::string str;
-  int frame_idx = 0;
-  int num_atoms = 0;
-  auto frame = pdb_frame{frame_idx++};
-  while (std::getline(ifs, str)) {
-    str = trim(str);
-    if (str == "END") {
-      // Slow down if the consumers can't keep up to avoid memory bloat.
-      while (queue.frames.size_approx() > 200) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      }
-      queue.frames.enqueue(std::move(frame));
-
-      frame = pdb_frame{frame_idx++};
-      continue;
-    }
-    std::istringstream iss(str);
-    std::string unused, atom, residue;
-    int residue_id;
-    int atom_id;
-    // NOTE: We could read lines at specific offsets, but I think this is more
-    // robust.
-    iss >> unused >> atom_id >> atom >> residue;
-    iss >> residue_id;
-    if (iss.fail()) {
-      iss.clear();
-      iss >> unused;
-      iss >> residue_id;
-    }
-
-    float x, y, z;
-    iss >> x >> y >> z;
-    auto entry = pdb_atom_entry{{x, y, z}, residue, atom, atom_id, residue_id};
-    ++num_atoms;
-    frame.atoms.push_back(std::move(entry));
-  }
-
-  queue.producer_done = true;
-
-  if (g_verbose) {
-    std::cout << fmt::format("Parsed pdb file: {} frames with {} atoms each\n",
-                             frame_idx, num_atoms / frame_idx);
-  }
-}
 
 std::pair<std::vector<Point_3>, bounds> get_binding_site(
     const pdb_frame &frame,
