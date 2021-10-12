@@ -13,6 +13,9 @@
 
 #include <CGAL/Advancing_front_surface_reconstruction.h>
 #include <CGAL/Polygon_mesh_processing/orient_polygon_soup.h>
+#include <CGAL/Polygon_mesh_processing/orientation.h>
+
+
 
 #include <CGAL/Point_set_3.h>
 
@@ -23,7 +26,6 @@
 #include <CGAL/Point_set_3/IO.h>
 
 #include <cassert>
-#include <fstream>
 #include <list>
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Gt;
 typedef CGAL::Alpha_shape_vertex_base_3<Gt>          Vb;
@@ -80,9 +82,7 @@ CGAL::Surface_mesh<Point_3> calc_alpha_shape_geometries(const std::vector<Point_
   std::copy (points.points().begin(), points.points().end(), std::back_inserter (vertices2));
   CGAL::Surface_mesh<Point_3> output_mesh;
   CGAL::Polygon_mesh_processing::polygon_soup_to_polygon_mesh (vertices2, facets, output_mesh);
-  std::ofstream f ("out.off");
-  f << output_mesh;
-  f.close ();
+  CGAL::Polygon_mesh_processing::reverse_face_orientations(output_mesh);
 
   return output_mesh;
 }

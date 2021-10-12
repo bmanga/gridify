@@ -4,7 +4,6 @@
 #include <CGAL/mesh_union_of_balls_3.h>
 #include <list>
 #include <CGAL/Surface_mesh.h>
-#include <fstream>
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
 
@@ -32,8 +31,5 @@ Surface_mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, int
   Surface_mesh mesh;
   CGAL::copy_face_graph(p, mesh);
 
-  std::ofstream f ("balls.off");
-  f << mesh;
-  f.close ();
   return mesh;
 }

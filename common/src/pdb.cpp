@@ -3,6 +3,7 @@
 #include <sstream>
 #include <fmt/printf.h>
 #include "common/pdb.h"
+#include "common/processing.h"
 
 std::string trim(const std::string &s)
 {

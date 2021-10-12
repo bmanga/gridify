@@ -1,11 +1,8 @@
 #ifndef GRIDIFY_PDB_H
 #define GRIDIFY_PDB_H
 
-#include "common.h"
-#include <moodycamel/concurrentqueue.h>
+#include "common/common.h"
 
-
-double parse_pdb_gridify_spacing(std::ifstream &ifs);
 
 struct pdb_atom_entry {
   Point_3 pos;
@@ -24,15 +21,10 @@ struct pdb {
   std::vector<pdb_frame> frames;
 };
 
-using frame_queue = moodycamel::ConcurrentQueue<pdb_frame>;
 
-struct producer_consumer_queue {
-  std::atomic_bool producer_done = false;
-  std::atomic<int> consumers_done = 0;
 
-  frame_queue frames;
-};
+void parse_pdb(std::ifstream &ifs, struct producer_consumer_queue &queue);
 
-void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue);
+double parse_pdb_gridify_spacing(std::ifstream &ifs);
 
 #endif  // GRIDIFY_PDB_H

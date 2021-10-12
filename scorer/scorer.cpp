@@ -1,24 +1,19 @@
 #include <common/pdb.h>
+#include "common/processing.h"
 #include <thread>
 #include <fstream>
 #include <cds/container/fcpriority_queue.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
+#include <fmt/format.h>
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
-struct processed_frame {
-  int frame_idx = -1;
-  std::vector<Point_3> out_grid_points;
-
-  bool operator<(const processed_frame &other) const
-  {
-    return frame_idx > other.frame_idx;
-  }
+struct processed_data {
+  double intersection_over_union;
+  double intersection_over_ligand;
+  double intersection_over_site;
 };
-
-using priority_queue = cds::container::FCPriorityQueue<processed_frame>;
-
 
 Surface_Mesh calc_alpha_shape_geometries(const std::vector<Point_3> &points);
 Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, int radius);
@@ -29,10 +24,11 @@ auto calc_intersection(const Surface_Mesh &ligand, Surface_Mesh &site) {
   Surface_Mesh intersection;
   auto ligand_cpy = ligand;
   PMP::corefine_and_compute_intersection(ligand_cpy, site, intersection);
+
   return intersection;
 }
 
-processed_frame process_frame(const pdb_frame &f, const CGAL::Surface_mesh<Point_3> &ligand, double site_r)
+processed_data process_frame(const pdb_frame &f, const CGAL::Surface_mesh<Point_3> &ligand, double site_r)
 {
   std::vector<Point_3> points;
   for (const auto &a : f.atoms) {
@@ -40,14 +36,28 @@ processed_frame process_frame(const pdb_frame &f, const CGAL::Surface_mesh<Point
   }
   auto site = calc_surface_union_of_balls(points, site_r);
 
-  auto intersection_vol = PMP::volume(calc_intersection(ligand, site));
+  {
+    std::ofstream f ("site.off");
+    f << site;
+    f.close ();
+  }
+
+  auto intersection = calc_intersection(ligand, site);
+  {
+    std::ofstream f("intersection.off");
+    f << intersection;
+    f.close();
+  }
+  auto intersection_vol = PMP::volume(intersection);
   auto site_vol = PMP::volume(site);
-  auto score = intersection_vol / site_vol;
-  std::cout << score << std::endl;
+  auto ligand_vol = PMP::volume(ligand);
+  auto union_vol = ligand_vol + site_vol - intersection_vol;
 
-  //
-
-  return {};
+  return {
+      .intersection_over_union = intersection_vol / union_vol,
+      .intersection_over_ligand = intersection_vol / ligand_vol,
+      .intersection_over_site = intersection_vol / site_vol
+  };
 }
 
 int main(int argc, char *argv[])
@@ -78,28 +88,32 @@ int main(int argc, char *argv[])
   }
   auto ligand_mesh = calc_alpha_shape_geometries(points);
 
+  {
+    std::ofstream f("ligand.off");
+    f << ligand_mesh;
+    f.close();
+  }
+
   parse_pdb(grid_file, queue);
 
-  priority_queue processed_frames;
+  processed_queue<processed_data> processed_frames;
 
   std::vector<std::thread> consumers;
   int num_consumers = 1;
   for (int j = 0; j < num_consumers; ++j) {
-    consumers.emplace_back([&] {
-      bool items_left = false;
-      pdb_frame frame;
-      do {
-        items_left = !queue.producer_done;
-        while (queue.frames.try_dequeue(frame)) {
-          items_left = true;
-          processed_frames.push(process_frame(frame, ligand_mesh, grid_radius));
-        }
-      } while (items_left ||
-               queue.consumers_done.fetch_add(1, std::memory_order_acq_rel) +
-                       1 ==
-                   num_consumers);
-    });
+    consumers.emplace_back(process_frame_loop(num_consumers, queue, processed_frames,
+                                              [&](const pdb_frame &frame) {
+                                                return process_frame(frame, ligand_mesh, grid_radius);
+                                              }));
   }
+
+  process_serialized_results(num_consumers, queue, processed_frames,
+                             [&](int frame_idx, processed_data &data) {
+                               fmt::print("-- writing frame {}\n", frame_idx);
+                               fmt::print("IOU: {:.3}\n", data.intersection_over_union);
+                               fmt::print("IOL: {:.3}\n", data.intersection_over_ligand);
+                               fmt::print("IOS: {:.3}\n", data.intersection_over_site);
+                             });
 
   //producer.join();
   for (auto &c : consumers) {

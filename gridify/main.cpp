@@ -11,9 +11,9 @@
 #include <CGAL/algorithm.h>
 #include <CGAL/convex_hull_3.h>
 
-#include <cds/container/fcpriority_queue.h>
 #include "aabb_tree.hpp"
 #include "common.hpp"
+#include "common/processing.h"
 
 #define ALL_SETTINGS            \
   X(std::string, in_file)       \
@@ -43,15 +43,9 @@ struct site_properties {
   bounds pca_bounds;
 };
 
-struct processed_frame {
-  int frame_idx = -1;
+struct processed_data {
   std::vector<Point_3> out_grid_points;
   std::optional<site_properties> properties;
-
-  bool operator<(const processed_frame &other) const
-  {
-    return frame_idx > other.frame_idx;
-  }
 };
 
 bool g_verbose = false;
@@ -298,19 +292,19 @@ void write_out_pdb_frame_remarks(std::FILE *out,
                     pca_bounds.z.second - pca_bounds.z.first));
 }
 
-void write_out_pdb_frame(std::FILE *out, const processed_frame &pf)
+void write_out_pdb_frame(std::FILE *out, int frame_idx, const processed_data &data)
 {
   int cnt = 0;
   int resID = 0;
-  for (const auto &pt : pf.out_grid_points) {
+  for (const auto &pt : data.out_grid_points) {
     fmt::print(
         out,
         "HETATM{:>5}  C   PTH {:>5}{:>12.3f}{:>8.3f}{:>8.3f}  0.00  0.00\n",
         ++cnt, ++resID, pt.x(), pt.y(), pt.z());
   }
 
-  if (pf.properties.has_value()) {
-    write_out_pdb_frame_remarks(out, *pf.properties, pf.frame_idx);
+  if (data.properties.has_value()) {
+    write_out_pdb_frame_remarks(out, *data.properties, frame_idx);
   }
   fmt::print(out, "END\n");
 }
@@ -511,7 +505,6 @@ double calc_site_volume(const config &c, const std::vector<Point_3> &points)
   return volume;
 }
 
-using priority_queue = cds::container::FCPriorityQueue<processed_frame>;
 
 site_properties calc_site_properties(const config &c,
                                      const std::vector<Point_3> &site_points,
@@ -521,10 +514,10 @@ site_properties calc_site_properties(const config &c,
           get_bounds(pca_points)};
 }
 
-processed_frame process_frame(const config &config, pdb_frame &frame)
+processed_data process_frame(const config &config, const pdb_frame &frame)
 {
   fmt::print("-- Processing frame {}\n", frame.frame_idx);
-  auto result = processed_frame{frame.frame_idx};
+  auto result = processed_data{};
 
   auto grid_points = generate_grid_points(config, frame);
 
@@ -570,25 +563,15 @@ int main(int argc, char *argv[])
 
   std::thread producer([&] { parse_pdb(pdb_file, queue); });
 
-  priority_queue processed_frames;
+  processed_queue<processed_data> processed_frames;
 
   std::vector<std::thread> consumers;
   int num_consumers = config.jobs;
   for (int j = 0; j < num_consumers; ++j) {
-    consumers.emplace_back([&] {
-      bool items_left = false;
-      pdb_frame frame;
-      do {
-        items_left = !queue.producer_done;
-        while (queue.frames.try_dequeue(frame)) {
-          items_left = true;
-          processed_frames.push(process_frame(config, frame));
-        }
-      } while (items_left ||
-               queue.consumers_done.fetch_add(1, std::memory_order_acq_rel) +
-                       1 ==
-                   num_consumers);
-    });
+    consumers.emplace_back(process_frame_loop(num_consumers, queue, processed_frames,
+                           [&](const pdb_frame &frame) {
+      return process_frame(config, frame);
+    }));
   }
 
   std::thread writer([&] {
@@ -601,30 +584,12 @@ int main(int argc, char *argv[])
 
     write_out_pdb_header(out, config);
 
-    int top_frame_idx = -1;
-    int next_frame = 0;
-    while (!processed_frames.empty() ||
-           queue.consumers_done != num_consumers + 1) {
-      if (processed_frames.empty()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        continue;
-      }
-      do {
-        processed_frames.apply([&](const auto &queue) {
-          if (!queue.empty()) {
-            top_frame_idx = queue.top().frame_idx;
-          }
-        });
-      } while (top_frame_idx != next_frame &&
-               (queue.consumers_done != num_consumers + 1));
-      ++next_frame;
-      processed_frame pf;
+    process_serialized_results(num_consumers, queue, processed_frames,
+                               [&](int frame_idx, processed_data &data) {
+        fmt::print("-- writing frame {}\n", frame_idx);
+        write_out_pdb_frame(out, frame_idx, data);
+      });
 
-      if (processed_frames.pop(pf)) {
-        fmt::print("-- writing frame {}\n", pf.frame_idx);
-        write_out_pdb_frame(out, pf);
-      }
-    }
     if (!out_file.empty()) {
       std::fclose(out);
     }
