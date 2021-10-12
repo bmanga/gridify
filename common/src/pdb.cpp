@@ -72,3 +72,16 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
                              frame_idx, num_atoms / frame_idx);
   }
 }
+
+double parse_pdb_gridify_spacing(std::ifstream &ifs) {
+  std::string str;
+  while (std::getline(ifs, str)) {
+    if (!str.starts_with("REMARK 100")) {
+      break;
+    }
+    if (str.starts_with("REMARK 100 spacing")) {
+      return std::stod(str.substr(21));
+    }
+  }
+  return -1;
+}

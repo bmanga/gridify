@@ -5,6 +5,7 @@
 #include <moodycamel/concurrentqueue.h>
 
 
+double parse_pdb_gridify_spacing(std::ifstream &ifs);
 
 struct pdb_atom_entry {
   Point_3 pos;

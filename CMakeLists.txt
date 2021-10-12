@@ -14,3 +14,4 @@ list(APPEND CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
 # Includere i sottoprogetti.
 add_subdirectory(common)
 add_subdirectory ("gridify")
+add_subdirectory(scorer)
