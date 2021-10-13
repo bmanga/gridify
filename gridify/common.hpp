@@ -5,8 +5,6 @@
 #include <string>
 #include <vector>
 
-
-#include <nlohmann/json.hpp>
 #include <fmt/format.h>
 #include <yaml-cpp/yaml.h>
 
@@ -14,20 +12,9 @@
 
 #include <common/common.h>
 #include <common/pdb.h>
-
-using json = nlohmann::json;
-
-
+#include "common/radius.h"
 
 extern bool g_verbose;
-
-template <class... Ts>
-void vlog(Ts &&...ts)
-{
-  if (g_verbose) {
-    fmt::print(std::forward<Ts>(ts)...);
-  }
-}
 
 struct bounds {
   static constexpr std::pair<float, float> INIT = {
@@ -41,61 +28,6 @@ struct bounds {
            point.y() <= y.second && point.y() >= y.first &&
            point.z() <= z.second && point.z() >= z.first;
   }
-};
-
-struct radius_matcher {
-  radius_matcher(std::istream &descriptor)
-  {
-    if (!descriptor.good()) {
-      fmt::print("WARN: no radius file found (radii.json).\n");
-      radii["default"] = 2;
-    }
-    else {
-      descriptor >> radii;
-    }
-  }
-
-  double radius(pdb_atom_entry entry) const
-  {
-    const auto &resid = entry.residue;
-    auto atom = entry.atom;
-    while (std::isdigit(atom.back())) {
-      atom.pop_back();
-    }
-
-    auto vlog_radius = [&entry, &atom](const char *where, double radius) {
-      vlog(
-          "RADIUS - value for atom {} ({}.{}, using {}.{}) "
-          "= {}\n",
-          entry.atom_id, entry.residue, entry.atom, where, atom, radius);
-    };
-
-    if (radii.contains(resid)) {
-      if (radii[resid].contains(atom)) {
-        auto radius = radii[resid][atom].get<double>();
-        vlog_radius("residue", radius);
-        return radius;
-      }
-    }
-    while (atom.size() > 0) {
-      if (radii["defaults"].contains(atom)) {
-        auto radius = radii["defaults"][atom].get<double>();
-        vlog_radius("defaults", radius);
-        return radius;
-      }
-      atom.pop_back();
-    }
-
-    auto def = radii["default"].get<double>();
-    vlog(
-        "WARN: RADIUS - no suitable radius found for atom {} ({}.{}): Using "
-        "specified "
-        "default of {}.\n",
-        entry.atom_id, entry.atom, entry.residue, def);
-    return def;
-  }
-
-  json radii;
 };
 
 struct points_checker {

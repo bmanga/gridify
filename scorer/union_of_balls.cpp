@@ -33,3 +33,22 @@ Surface_mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, int
 
   return mesh;
 }
+
+Surface_mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, const std::vector<double> &radii)
+{
+  std::list<Weighted_point> l;
+  for (int j = 0; j < points.size(); ++j) {
+    const auto &p = points[j];
+    double radius = radii[j];
+    l.push_front(Weighted_point(Bare_point(p), radius));
+  }
+
+  Union_of_balls_3 union_of_balls(l.begin(), l.end());
+  Polyhedron p;
+  CGAL::mesh_union_of_balls_3(union_of_balls, p);
+
+  Surface_mesh mesh;
+  CGAL::copy_face_graph(p, mesh);
+
+  return mesh;
+}

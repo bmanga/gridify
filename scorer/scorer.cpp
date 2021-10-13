@@ -1,5 +1,6 @@
 #include <common/pdb.h>
 #include "common/processing.h"
+#include "common/radius.h"
 #include <thread>
 #include <fstream>
 #include <cds/container/fcpriority_queue.h>
@@ -17,6 +18,7 @@ struct processed_data {
 
 Surface_Mesh calc_alpha_shape_geometries(const std::vector<Point_3> &points);
 Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, int radius);
+Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, const std::vector<double> &radii);
 
 bool g_verbose = true;
 
@@ -60,8 +62,22 @@ processed_data process_frame(const pdb_frame &f, const CGAL::Surface_mesh<Point_
   };
 }
 
+auto gen_ligand_geometry(const pdb_frame &f, const radius_matcher &rad_matcher)
+{
+  std::vector<Point_3> points;
+  std::vector<double> radii;
+  for (const auto &a : f.atoms) {
+    points.push_back(a.pos);
+    radii.push_back(rad_matcher.radius(a));
+  }
+  return calc_surface_union_of_balls(points, radii);
+}
+
 int main(int argc, char *argv[])
 {
+  auto radii_file = std::ifstream("radii.json");
+  auto rad_match = radius_matcher(radii_file);
+
   auto ligand_file = std::ifstream(argv[1]);
 
   auto grid_file = std::ifstream(argv[2]);
@@ -86,7 +102,8 @@ int main(int argc, char *argv[])
   for (const auto &a : frame.atoms) {
     points.push_back(a.pos);
   }
-  auto ligand_mesh = calc_alpha_shape_geometries(points);
+
+  auto ligand_mesh = gen_ligand_geometry(frame, rad_match);
 
   {
     std::ofstream f("ligand.off");

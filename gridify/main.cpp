@@ -14,6 +14,7 @@
 #include "aabb_tree.hpp"
 #include "common.hpp"
 #include "common/processing.h"
+#include "common/radius.h"
 
 #define ALL_SETTINGS            \
   X(std::string, in_file)       \
