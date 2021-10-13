@@ -34,7 +34,7 @@ template <class Data, class Fn>
 auto process_frame_loop(int num_consumers, producer_consumer_queue &queue,
                         processed_queue<Data> &processed_frames,
                         Fn &&fn) {
-  return [&, num_consumers] {
+  return [&, fn = std::forward<Fn>(fn), num_consumers] () mutable {
     bool items_left = false;
     pdb_frame frame;
     do {

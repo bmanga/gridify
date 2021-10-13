@@ -94,7 +94,7 @@ int main(int argc, char *argv[])
     f.close();
   }
 
-  parse_pdb(grid_file, queue);
+  std::thread producer([&] {parse_pdb(grid_file, queue);});
 
   processed_queue<processed_data> processed_frames;
 
@@ -107,15 +107,18 @@ int main(int argc, char *argv[])
                                               }));
   }
 
-  process_serialized_results(num_consumers, queue, processed_frames,
-                             [&](int frame_idx, processed_data &data) {
-                               fmt::print("-- writing frame {}\n", frame_idx);
-                               fmt::print("IOU: {:.3}\n", data.intersection_over_union);
-                               fmt::print("IOL: {:.3}\n", data.intersection_over_ligand);
-                               fmt::print("IOS: {:.3}\n", data.intersection_over_site);
-                             });
 
-  //producer.join();
+  process_serialized_results(
+      num_consumers, queue, processed_frames,
+      [&](int frame_idx, processed_data &data) {
+        fmt::print("-- writing frame {}\n", frame_idx);
+        fmt::print("IOU: {:.3}\n", data.intersection_over_union);
+        fmt::print("IOL: {:.3}\n", data.intersection_over_ligand);
+        fmt::print("IOS: {:.3}\n", data.intersection_over_site);
+      });
+
+
+  producer.join();
   for (auto &c : consumers) {
     c.join();
   }

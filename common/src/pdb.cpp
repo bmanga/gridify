@@ -41,7 +41,6 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       }
       queue.frames.enqueue(std::move(frame));
-
       frame = pdb_frame{frame_idx++};
       continue;
     }
@@ -68,9 +67,10 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
 
   queue.producer_done = true;
 
+  int num_frames = frame_idx - 1;
   if (g_verbose) {
     fmt::print("Parsed pdb file: {} frames with {} atoms each\n",
-                             frame_idx, num_atoms / frame_idx);
+                             num_frames, num_atoms / num_frames);
   }
 }
 
