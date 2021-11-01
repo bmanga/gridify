@@ -34,30 +34,29 @@ struct points_checker {
     }
     auto &atoms_tree = opt_atoms_tree.value();
 
-    std::vector<unsigned> intersections;
-
     auto center = abt::point3d(point.x(), point.y(), point.z());
-    if (radius == 0) {
-      intersections = atoms_tree.get_overlaps(center);
-    }
-    else {
-      intersections =
-          atoms_tree.get_overlaps(abt::aabb3d::of_sphere(center, radius));
-    }
-    if (intersections.empty()) {
-      return true;
-    }
-    for (const auto id : intersections) {
-      auto bb = opt_atoms_tree->get_aabb(id);
+    bool no_intersections = true;
+
+    auto visitor = [&](unsigned id, const abt::aabb3d &bb) {
       auto radius = bb.upperBound.x() - bb.centre.x();
       auto dist_to_center = CGAL::squared_distance(
           point, Point_3(bb.centre.x(), bb.centre.y(), bb.centre.z()));
-
       if (dist_to_center <= radius * radius) {
-        return false;
+        no_intersections = false;
+        return abt::visit_stop;
       }
+      else {
+        return abt::visit_continue;
+      }
+    };
+    if (radius == 0) {
+      atoms_tree.visit_overlaps(center, visitor);
     }
-    return true;
+    else {
+      atoms_tree.visit_overlaps(abt::aabb3d::of_sphere(center, radius), visitor);
+    }
+
+    return no_intersections;
   }
 
   void enable_check_atoms(const pdb_frame &frame,
