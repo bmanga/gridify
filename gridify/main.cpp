@@ -30,8 +30,8 @@
   X(double, spacing, 1.0, "grid spacing")            \
   X(double, point_radius, 0, "if not 0, the grid points are considered spheres with the given radius")       \
   X(double, rm_lc_cutoff, 0, "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)")       \
-  X(std::vector<int>, site_residues, {}, "list of residues ids that make up the binding site")
-
+  X(std::vector<int>, site_residues, {}, "list of residues ids that make up the binding site")                                                       \
+  X(double, scale_radius, 1.0, "The scale factor for atomic radii (default 1)")
 #include "common/cmdline.inc"
 
 
@@ -385,7 +385,7 @@ z    {:.3f}  {:.3f}
   auto checker = points_checker(poly);
   if (rm_atom_overlaps) {
     auto radii_file = std::ifstream("radii.json");
-    auto radmatch = radius_matcher(radii_file);
+    auto radmatch = radius_matcher(radii_file, config.scale_radius);
     checker.enable_check_atoms(frame, radmatch, bounds);
   }
 
