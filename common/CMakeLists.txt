@@ -1,4 +1,4 @@
-add_library(common src/pdb.cpp)
+add_library(common src/pdb.cpp src/pca.cpp)
 target_include_directories(common PUBLIC include)
 find_package(CGAL REQUIRED)
 find_package(concurrentqueue REQUIRED)

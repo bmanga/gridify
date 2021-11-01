@@ -16,20 +16,6 @@
 
 extern bool g_verbose;
 
-struct bounds {
-  static constexpr std::pair<float, float> INIT = {
-      std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest()};
-
-  std::pair<float, float> x = INIT, y = INIT, z = INIT;
-
-  bool is_inside(Point_3 point) const
-  {
-    return point.x() <= x.second && point.x() >= x.first &&
-           point.y() <= y.second && point.y() >= y.first &&
-           point.z() <= z.second && point.z() >= z.first;
-  }
-};
-
 struct points_checker {
   points_checker(const Surface_Mesh &poly)
       : tree(faces(poly).first, faces(poly).second, poly), inside_tester(tree)

@@ -1,13 +1,11 @@
 #include <Eigen/Dense>
 #include <Eigen/Eigenvalues>
-#include <iostream>
-
-#include "aabb_tree.hpp"
-#include "common.hpp"
+#include <vector>
+#include "common/common.h"
 
 using Mat = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>;
 
-const auto convert_to_eigen(const std::vector<Point_3> &points)
+static const auto view_as_eigen_mat(const std::vector<Point_3> &points)
 {
   static_assert(sizeof(Point_3) == sizeof(double) * 3);
   const auto m =
@@ -15,7 +13,7 @@ const auto convert_to_eigen(const std::vector<Point_3> &points)
   return m;
 }
 
-auto convert_to_eigen(std::vector<Point_3> &points)
+static auto view_as_eigen_mat(std::vector<Point_3> &points)
 {
   static_assert(sizeof(Point_3) == sizeof(double) * 3);
   auto m = Eigen::Map<Mat>((double *)points.data(), points.size(), 3);
@@ -24,9 +22,9 @@ auto convert_to_eigen(std::vector<Point_3> &points)
 
 std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points)
 {
-  const auto m = convert_to_eigen(points);
+  const auto m = view_as_eigen_mat(points);
   auto result = std::vector<Point_3>(points.size());
-  auto res_eigen = convert_to_eigen(result);
+  auto res_eigen = view_as_eigen_mat(result);
   Eigen::VectorXd means = m.colwise().mean();
   auto centered = m.rowwise() - means.transpose();
 
@@ -35,13 +33,13 @@ std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points)
 
   auto eig = Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd>(cov);
 
-  res_eigen = m * Eigen::Reverse<Eigen::MatrixXd, Eigen::Horizontal>(
+  res_eigen = centered * Eigen::Reverse<Eigen::MatrixXd, Eigen::Horizontal>(
                       eig.eigenvectors());
   return result;
 }
 
 bounds get_bounds(const std::vector<Point_3>& points) {
-  auto mat = convert_to_eigen(points);
+  auto mat = view_as_eigen_mat(points);
   auto cols = mat.colwise();
   auto mins = cols.minCoeff();
   auto maxs = cols.maxCoeff();

@@ -15,6 +15,7 @@
 #include "common.hpp"
 #include "common/processing.h"
 #include "common/radius.h"
+#include "common/pca.h"
 
 #define ALL_SETTINGS            \
   X(std::string, in_file)       \
@@ -488,10 +489,6 @@ z    {:.3f}  {:.3f}
 
   return grid_points;
 }
-
-std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points);
-
-bounds get_bounds(const std::vector<Point_3> &points);
 
 double calc_site_volume(const config &c, const std::vector<Point_3> &points)
 {
