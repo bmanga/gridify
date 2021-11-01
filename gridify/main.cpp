@@ -18,25 +18,21 @@
 #include "common/pca.h"
 
 #define ALL_SETTINGS            \
-  X(std::string, in_file)       \
-  X(std::string, out_file)      \
-  X(unsigned, jobs)             \
-  X(bool, verbose)              \
-  X(bool, dense_packing)        \
-  X(bool, rm_atom_overlaps)     \
-  X(bool, largest_cluster_only) \
-  X(bool, pca_align)            \
-  X(bool, calculate_properties) \
-  X(double, spacing)            \
-  X(double, point_radius)       \
-  X(double, rm_lc_cutoff)       \
-  X(std::vector<int>, site_residues)
+  X(std::string, in_file, "", "input file")       \
+  X(std::string, out_file, "", "output file (stdout if omitted)")     \
+  X(unsigned, jobs, 0, "number of worker threads (0 for automatic)")             \
+  X(bool, verbose, false, "display extra information")              \
+  X(bool, dense_packing, false, "enable dense packing for the grid point (point_radius must be > 0, spacing is set to 2 times point_radius)")        \
+  X(bool, rm_atom_overlaps, false, "remove grid points that overlap with atoms")     \
+  X(bool, largest_cluster_only, false, "only keep the largest cluster of close points (uses spacing to determine connectivity)") \
+  X(bool, pca_align, false, "align the grid using PCA, with maximum variance on the X axis")            \
+  X(bool, calculate_properties, false, "calculate additional properties and output them to stdout or <out_file>.props") \
+  X(double, spacing, 1.0, "grid spacing")            \
+  X(double, point_radius, 0, "if not 0, the grid points are considered spheres with the given radius")       \
+  X(double, rm_lc_cutoff, 0, "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)")       \
+  X(std::vector<int>, site_residues, {}, "list of residues ids that make up the binding site")
 
-struct config {
-#define X(type, name) type name = {};
-  ALL_SETTINGS
-#undef X
-};
+#include "common/cmdline.inc"
 
 
 struct site_properties {
@@ -241,7 +237,7 @@ void write_out_config_remarks(std::FILE *out, const config &c) {
   remark_group props(out);
   props("GENERATED FROM THE FOLLOWING CONFIGURATION");
 
-#define X(type, name)             \
+#define X(type, name, ...)             \
   props(#name, c.name);
 
   ALL_SETTINGS
@@ -311,86 +307,18 @@ void write_out_pdb_frame(std::FILE *out, int frame_idx, const processed_data &da
   fmt::print(out, "END\n");
 }
 
-config parse_yaml_settings(const std::string &file)
+void validate_config(config &c)
 {
-  config c;
-  YAML::Node y = YAML::LoadFile(file);
-#define X(type, name)             \
-  if (y[#name]) {                 \
-    c.name = y[#name].as<type>(); \
-  }
-
-  ALL_SETTINGS
-
-#undef X
-  return c;
-}
-
-config parse_cmd_line_settings(int argc, char *argv[])
-{
-  auto opts = cxxopts::Options(
-      "gridify",
-      "Generates a grid of points within the convex hull of the input points");
-
-  // clang-format off
-  opts.add_options()("i,in_file", "input file", cxxopts::value<std::string>()->default_value(""))
-    ("o,out_file", "output file (stdout if omitted)",cxxopts::value<std::string>()->default_value(""))
-    ("s,spacing", "grid spacing", cxxopts::value<double>()->default_value("1.0f"))
-    ("v,verbose", "display extra information", cxxopts::value<bool>()->default_value("false"))
-    ("j,jobs", "number of worker threads (0 for automatic)", cxxopts::value<unsigned>()->default_value("0"))
-    ("r,site_residues", "list of residues ids that make up the binding site", cxxopts::value<std::vector<int>>())
-    ("rm_atom_overlaps", "remove grid points that overlap with atoms", cxxopts::value<bool>()->default_value("false"))
-    ("point_radius", "if not 0, the grid points are considered spheres with the given radius", cxxopts::value<double>()->default_value("0"))
-    ("dense_packing", "enable dense packing for the grid point (point_radius must be > 0, spacing is set to 2 times point_radius)", cxxopts::value<bool>()->default_value("false"))
-    ("rm_lc_cutoff", "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)", cxxopts::value<double>()->default_value("0"))
-    ("largest_cluster_only", "only keep the largest cluster of close points (uses spacing to determine connectivity)", cxxopts::value<bool>()->default_value("false"))
-    ("l,load_yaml_defaults", "get option defaults from the specified file", cxxopts::value<std::string>()->default_value(""))
-    ("pca_align", "align the grid using PCA, with maximum variance on the X axis", cxxopts::value<bool>()->default_value("false"))
-    ("c,calculate_properties", "calculate additional properties and output them to stdout or <out_file>.props", cxxopts::value<bool>()->default_value("false"));
-  // clang-format on
-
-  opts.parse_positional("in_file");
-
-  config c;
-
-  auto parsed_opts = opts.parse(argc, argv);
-
-  auto yaml_defaults_file = parsed_opts["load_yaml_defaults"].as<std::string>();
-  if (!yaml_defaults_file.empty()) {
-    try {
-      c = parse_yaml_settings(yaml_defaults_file);
-    }
-    catch (YAML::BadFile &e) {
-      std::cerr << "Error parsing yaml file '" << yaml_defaults_file << "'"
-                << std::endl;
-      std::cerr << e.what() << std::endl;
-      std::exit(-1);
-    }
-  }
-
-#define X(type, name)                \
-  if (parsed_opts.count(#name) != 0) \
-    c.name = parsed_opts[#name].as<type>();
-  ALL_SETTINGS
-#undef X
-
   if (c.in_file.empty()) {
     std::cerr << "ERROR: You must specify input file\n";
-    std::cout << opts.help();
     std::exit(-1);
   }
 
   if (c.site_residues.empty()) {
     std::cerr << "ERROR: You must specify the atoms of the binding site\n";
-    std::cout << opts.help();
     std::exit(-1);
   }
 
-  return c;
-}
-
-void validate_config(config &c)
-{
   if (c.dense_packing && c.point_radius == 0) {
     std::cerr << "With dense packing, you must specify a point_radius > 0\n";
     std::exit(-1);
@@ -429,7 +357,7 @@ struct fmt::formatter<std::vector<int>> {
 std::vector<Point_3> generate_grid_points(const config &config,
                                           const pdb_frame &frame)
 {
-#define X(type, name) auto &name = config.name;
+#define X(type, name, ...) auto &name = config.name;
   ALL_SETTINGS
 #undef X
 
@@ -540,15 +468,15 @@ processed_data process_frame(const config &config, const pdb_frame &frame)
 
 int main(int argc, char *argv[])
 {
-  auto config = parse_cmd_line_settings(argc, argv);
+  auto config = parse_cmd_line_settings("gridify",
+                                        "Generates a grid of points within the convex hull of the input points",
+                                        argc, argv,
+                                        [](auto &opts) {opts.parse_positional("in_file");});
   validate_config(config);
 
   g_verbose = config.verbose;
   if (g_verbose) {
-    fmt::print("Configuration: \n");
-#define X(type, name) fmt::print("  -- {}: {}\n", #name, config.name);
-    ALL_SETTINGS
-#undef X
+    print_configuration(config);
   }
 
   auto pdb_file = std::ifstream(config.in_file);

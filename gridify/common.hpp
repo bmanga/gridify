@@ -6,7 +6,6 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <yaml-cpp/yaml.h>
 
 #include "aabb_tree.hpp"
 
