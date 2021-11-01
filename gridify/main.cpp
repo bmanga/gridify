@@ -31,7 +31,9 @@
   X(double, point_radius, 0, "if not 0, the grid points are considered spheres with the given radius")       \
   X(double, rm_lc_cutoff, 0, "if > 0, enables low connectivity grid points cutoff (uses spacing to determine connectivity)")       \
   X(std::vector<int>, site_residues, {}, "list of residues ids that make up the binding site")                                                       \
-  X(double, scale_radius, 1.0, "The scale factor for atomic radii (default 1)")
+  X(double, scale_radius, 1.0, "The scale factor for atomic radii (default 1)")  \
+  X(double, rm_lc_tangent_weight, 1,  "When rm_lc_cutoff is on, this is the weight given to tangent spheres")                                            \
+  X(double, rm_lc_proximity_weight, 0.5, "When rm_lc_cutoff is on, this is the weight given to close (but not tangent) spheres")
 #include "common/cmdline.inc"
 
 
@@ -138,18 +140,21 @@ std::vector<Point_3> gen_grid(const points_checker &checker,
                          off_xy, pt_radius);
 }
 
-void rm_low_connectivity_points(abt::tree3d &points,
+void rm_low_connectivity_points(const config &config,
+                                abt::tree3d &points,
                                 double dist_cutoff,
                                 double min_conn_score)
 {
+  auto tangent_addition = config.rm_lc_tangent_weight - config.rm_lc_proximity_weight;
+
   auto overlap_score = [&](abt::aabb3d bb) {
     double cnt = 0;
     points.visit_overlaps(bb, [&](unsigned, const abt::aabb3d &bb2) {
-      cnt += 0.5;
+      cnt += config.rm_lc_proximity_weight;
       if (std::hypot(bb2.centre.x() - bb.centre.x(),
                      bb2.centre.y() - bb.centre.y(),
                      bb2.centre.z() - bb.centre.z()) <= dist_cutoff) {
-        cnt += 0.5;
+        cnt += tangent_addition;
       }
     });
     // Ignore the self overlap.
@@ -402,7 +407,7 @@ z    {:.3f}  {:.3f}
     }
 
     if (rm_lc_cutoff > 0) {
-      rm_low_connectivity_points(points, spacing, rm_lc_cutoff);
+      rm_low_connectivity_points(config, points, spacing, rm_lc_cutoff);
     }
     if (largest_cluster_only) {
       keep_largest_cluster_only(points);
