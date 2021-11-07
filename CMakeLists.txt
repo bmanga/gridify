@@ -12,6 +12,10 @@ project ("gridify")
 list(APPEND CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
 
 
+if (MSVC)
+	add_definitions(/bigobj)
+endif()
+
 # Includere i sottoprogetti.
 add_subdirectory(common)
 add_subdirectory ("gridify")

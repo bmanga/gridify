@@ -9,7 +9,3 @@ find_package(concurrentqueue REQUIRED)
 add_executable (gridify main.cpp common.hpp ../common/src/pca.cpp)
 target_link_libraries(gridify PUBLIC common CGAL::CGAL fmt::fmt Eigen3::Eigen3
 concurrentqueue::concurrentqueue)
-
-if (MSVC)
-	add_definitions(/bigobj)
-endif()
