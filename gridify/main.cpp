@@ -158,7 +158,7 @@ void rm_low_connectivity_points(const config &config,
       }
     });
     // Ignore the self overlap.
-    return cnt - 1;
+    return cnt - config.rm_lc_tangent_weight;
   };
 
   bool stable = false;
