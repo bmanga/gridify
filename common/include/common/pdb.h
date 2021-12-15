@@ -10,6 +10,8 @@ struct pdb_atom_entry {
   std::string atom;
   int atom_id;
   int residue_id;
+  std::string chain;
+  std::string kind;
 };
 
 struct pdb_frame {

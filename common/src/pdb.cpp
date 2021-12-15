@@ -29,12 +29,6 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
   auto frame = pdb_frame{frame_idx++};
   while (std::getline(ifs, str)) {
     str = trim(str);
-    if (str.starts_with("CRYST")) {
-      continue;
-    }
-    if (str.starts_with("REMARK")) {
-      continue;
-    }
     if (str == "END") {
       // Slow down if the consumers can't keep up to avoid memory bloat.
       while (queue.frames.size_approx() > 200) {
@@ -45,22 +39,31 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
       continue;
     }
     std::istringstream iss(str);
-    std::string unused, atom, residue;
+    std::string start;
+
+    iss >> start;
+
+    if (start != "ATOM" && start != "HETATM") {
+      continue;
+    }
+
+    std::string kind, atom, residue, chain;
+    kind = start;
     int residue_id;
     int atom_id;
     // NOTE: We could read lines at specific offsets, but I think this is more
     // robust.
-    iss >> unused >> atom_id >> atom >> residue;
+    iss >> atom_id >> atom >> residue;
     iss >> residue_id;
     if (iss.fail()) {
       iss.clear();
-      iss >> unused;
+      iss >> chain;
       iss >> residue_id;
     }
 
     float x, y, z;
     iss >> x >> y >> z;
-    auto entry = pdb_atom_entry{{x, y, z}, residue, atom, atom_id, residue_id};
+    auto entry = pdb_atom_entry{{x, y, z}, residue, atom, atom_id, residue_id, chain, kind};
     ++num_atoms;
     frame.atoms.push_back(std::move(entry));
   }
