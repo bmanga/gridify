@@ -20,3 +20,5 @@ endif()
 add_subdirectory(common)
 add_subdirectory ("gridify")
 add_subdirectory(scorer)
+add_subdirectory(sitefind)
+
