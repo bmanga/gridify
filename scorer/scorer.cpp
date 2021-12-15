@@ -29,7 +29,7 @@ struct processed_data {
 };
 
 Surface_Mesh calc_alpha_shape_geometries(const std::vector<Point_3> &points);
-Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, int radius);
+Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, double radius);
 Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, const std::vector<double> &radii);
 
 bool g_verbose = true;
@@ -51,22 +51,19 @@ processed_data process_frame(const config &c, const pdb_frame &f, const CGAL::Su
 
   if (c.pca_align) {
     points = pca_aligned_points(points);
-    for (auto &p : points) {
-      p = Point_3((float)p.x(), (float)p.y(), (float)p.z());
-    }
   }
 
   auto site = calc_surface_union_of_balls(points, site_r);
-
-  if (PMP::does_self_intersect(site)) {
-    fmt::print("site mesh contains self intersections");
-    std::exit(-1);
-  }
 
   {
     std::ofstream f ("site.off");
     f << site;
     f.close ();
+  }
+
+  if (PMP::does_self_intersect(site)) {
+    fmt::print("site mesh contains self intersections");
+    std::exit(-1);
   }
 
   auto intersection = calc_intersection(ligand, site);
@@ -129,11 +126,6 @@ int main(int argc, char *argv[])
   pdb_frame frame;
   if (!queue_ligand.frames.try_dequeue(frame)) {
     // TODO error.
-  }
-
-  std::vector<Point_3> points;
-  for (const auto &a : frame.atoms) {
-    points.push_back(a.pos);
   }
 
   auto ligand_mesh = gen_ligand_geometry(config, frame, rad_match);
