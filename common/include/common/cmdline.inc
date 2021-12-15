@@ -1,6 +1,7 @@
 #include <yaml-cpp/yaml.h>
 #include <cxxopts.hpp>
 #include <string>
+#include <fmt/format.h>
 
 namespace {
 struct config {
