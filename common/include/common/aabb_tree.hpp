@@ -598,8 +598,8 @@ class tree {
   bool any_overlap(const Query &query, Fn &&fn, bool include_touch = true) const
   {
     constexpr bool fn_with_bb = std::is_invocable_v<Fn, unsigned, aabb>;
-    static_assert(std::is_invocable_v<Fn, unsigned int> || fn_with_bb,
-                  "Wrong function signature");
+    //static_assert(std::is_invocable_v<Fn, unsigned int> || fn_with_bb,
+    //              "Wrong function signature");
     bool overlap = false;
     if constexpr (fn_with_bb) {
       auto wrap_fn = [&overlap, &fn](unsigned int id, const aabb &bb) {

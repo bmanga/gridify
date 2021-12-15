@@ -7,7 +7,7 @@
 
 #include <fmt/format.h>
 
-#include "aabb_tree.hpp"
+#include "common/aabb_tree.hpp"
 
 #include <common/common.h>
 #include <common/pdb.h>
