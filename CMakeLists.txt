@@ -17,7 +17,7 @@ if (MSVC)
 endif()
 
 # Includere i sottoprogetti.
-add_subdirectory(common)
+add_subdirectory(core)
 add_subdirectory ("gridify")
 add_subdirectory(scorer)
 add_subdirectory(sitefind)

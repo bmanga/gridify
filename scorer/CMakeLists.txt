@@ -1,4 +1,4 @@
 add_executable(scorer scorer.cpp alpha_shape.cpp union_of_balls.cpp)
 find_package(LibCDS REQUIRED)
 find_package(cxxopts REQUIRED)
-target_link_libraries(scorer PUBLIC common LibCDS::LibCDS cxxopts::cxxopts)
+target_link_libraries(scorer PUBLIC core LibCDS::LibCDS cxxopts::cxxopts)

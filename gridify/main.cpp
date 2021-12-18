@@ -11,11 +11,11 @@
 #include <CGAL/algorithm.h>
 #include <CGAL/convex_hull_3.h>
 
-#include "common/aabb_tree.hpp"
+#include "core/aabb_tree.hpp"
 #include "common.hpp"
-#include "common/processing.h"
-#include "common/radius.h"
-#include "common/pca.h"
+#include "core/processing.h"
+#include "core/radius.h"
+#include "core/pca.h"
 
 #define ALL_SETTINGS            \
   X(std::string, in_file, "", "input file")       \
@@ -34,7 +34,7 @@
   X(double, scale_radius, 1.0, "The scale factor for atomic radii (default 1)")  \
   X(double, rm_lc_tangent_weight, 1,  "When rm_lc_cutoff is on, this is the weight given to tangent spheres")                                            \
   X(double, rm_lc_proximity_weight, 0.5, "When rm_lc_cutoff is on, this is the weight given to close (but not tangent) spheres")
-#include "common/cmdline.inc"
+#include "core/cmdline.inc"
 
 
 struct site_properties {

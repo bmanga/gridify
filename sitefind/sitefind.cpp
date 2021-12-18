@@ -3,10 +3,10 @@
 #include <vector>
 #include <string>
 #include <iostream>
-#include "common/pdb.h"
-#include "common/processing.h"
-#include "common/radius.h"
-#include "common/aabb_tree.hpp"
+#include "core/pdb.h"
+#include "core/processing.h"
+#include "core/radius.h"
+#include "core/aabb_tree.hpp"
 
 using frames = std::vector<pdb_frame>;
 
@@ -17,7 +17,7 @@ using frames = std::vector<pdb_frame>;
   X(std::string, ligand, "", "The name of the ligand") \
   X(bool, ignore_radii, false, "Calculate the distances from the centers only, ignoring the atomic radii") \
   X(bool, all_ligands, false, "Find all ligands and calculate nearby residues to each")
-#include "common/cmdline.inc"
+#include "core/cmdline.inc"
 
 bool g_verbose;
 
