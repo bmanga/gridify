@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD 20)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY bin)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 project ("gridify")
 
 list(APPEND CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
@@ -21,4 +23,5 @@ add_subdirectory(core)
 add_subdirectory ("gridify")
 add_subdirectory(scorer)
 add_subdirectory(sitefind)
+add_subdirectory(python)
 
