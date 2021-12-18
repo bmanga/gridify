@@ -2,6 +2,8 @@
 #define GRIDIFY_PDB_H
 
 #include "common/common.h"
+#include <vector>
+#include <string>
 
 
 struct pdb_atom_entry {
@@ -26,6 +28,8 @@ struct pdb {
 
 
 void parse_pdb(std::ifstream &ifs, struct producer_consumer_queue &queue);
+
+std::vector<pdb_frame> parse_pdb(const std::string &file);
 
 double parse_pdb_gridify_spacing(std::ifstream &ifs);
 

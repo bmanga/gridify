@@ -20,8 +20,8 @@ std::string trim(const std::string &s)
   return std::string(start, end + 1);
 }
 
-
-void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
+template <class FnOnFrame, class FnOnDone>
+void parse_pdb(std::ifstream &ifs, FnOnFrame &&on_frame, FnOnDone &&on_done)
 {
   std::string str;
   int frame_idx = 0;
@@ -30,11 +30,7 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
   while (std::getline(ifs, str)) {
     str = trim(str);
     if (str == "END") {
-      // Slow down if the consumers can't keep up to avoid memory bloat.
-      while (queue.frames.size_approx() > 200) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      }
-      queue.frames.enqueue(std::move(frame));
+      std::forward<FnOnFrame>(on_frame)(std::move(frame));
       frame = pdb_frame{frame_idx++};
       continue;
     }
@@ -68,13 +64,41 @@ void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
     frame.atoms.push_back(std::move(entry));
   }
 
-  queue.producer_done = true;
+  std::forward<FnOnDone>(on_done)();
 
   int num_frames = frame_idx - 1;
   if (g_verbose) {
     fmt::print("Parsed pdb file: {} frames with {} atoms each\n",
                              num_frames, num_atoms / num_frames);
   }
+}
+
+void parse_pdb(std::ifstream &ifs, producer_consumer_queue &queue)
+{
+  auto on_frame = [&](pdb_frame &&frame) {
+    // Slow down if the consumers can't keep up to avoid memory bloat.
+      while (queue.frames.size_approx() > 200) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      }
+      queue.frames.enqueue(std::move(frame));
+  };
+  auto on_done = [&]{
+    queue.producer_done = true;
+  };
+  parse_pdb(ifs, on_frame, on_done);
+}
+
+std::vector<pdb_frame> parse_pdb(const std::string &file) {
+  std::vector<pdb_frame> frames;
+  auto on_frame = [&](pdb_frame &&frame) {
+    frames.push_back(std::move(frame));
+  };
+  auto on_done = []{
+  };
+  auto ifs = std::ifstream(file);
+  parse_pdb(ifs, on_frame, on_done);
+
+  return frames;
 }
 
 double parse_pdb_gridify_spacing(std::ifstream &ifs) {
