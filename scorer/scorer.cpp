@@ -6,8 +6,6 @@
 #include <thread>
 #include <fstream>
 #include <cds/container/fcpriority_queue.h>
-#include <CGAL/Polygon_mesh_processing/corefinement.h>
-#include <CGAL/Polygon_mesh_processing/measure.h>
 #include <fmt/format.h>
 #include <CGAL/Aff_transformation_3.h>
 #include <CGAL/Polygon_mesh_processing/transform.h>
@@ -20,65 +18,8 @@
 
 #include "core/cmdline.inc"
 
-namespace PMP = CGAL::Polygon_mesh_processing;
-
-struct site_ligand_stats {
-  double site_volume;
-  double ligand_volume;
-  double intersection_volume;
-  double union_volume;
-};
-
-Surface_Mesh calc_alpha_shape_geometries(const std::vector<Point_3> &points);
-Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, double radius);
-Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points, const std::vector<double> &radii);
-
 bool g_verbose = true;
 
-auto calc_intersection(const Surface_Mesh &ligand, Surface_Mesh &site) {
-  Surface_Mesh intersection;
-  auto ligand_cpy = ligand;
-  PMP::corefine_and_compute_intersection(ligand_cpy, site, intersection);
-
-  return intersection;
-}
-
-site_ligand_stats calc_grid_ligand_stats(
-    const std::vector<Point_3> &grid_points,
-    const Surface_Mesh &ligand,
-    double site_r)
-{
-  auto site = calc_surface_union_of_balls(grid_points, site_r);
-
-  {
-    std::ofstream f ("site.off");
-    f << site;
-    f.close ();
-  }
-
-  if (PMP::does_self_intersect(site)) {
-    fmt::print("site mesh contains self intersections");
-    std::exit(-1);
-  }
-
-  auto intersection = calc_intersection(ligand, site);
-  {
-    std::ofstream f("intersection.off");
-    f << intersection;
-    f.close();
-  }
-  auto intersection_vol = PMP::volume(intersection);
-  auto site_vol = PMP::volume(site);
-  auto ligand_vol = PMP::volume(ligand);
-  auto union_vol = ligand_vol + site_vol - intersection_vol;
-
-  return {
-    .site_volume = site_vol,
-    .ligand_volume = ligand_vol,
-    .intersection_volume = intersection_vol,
-    .union_volume = union_vol
-  };
-}
 
 site_ligand_stats process_frame(const config &c,
                                 const pdb_frame &f,
@@ -125,11 +66,6 @@ int main(int argc, char *argv[])
   }
 
   auto ligand_mesh = gen_ligand_geometry(frame, config.scale_radius, config.pca_align);
-
-  if (PMP::does_self_intersect(ligand_mesh)) {
-    fmt::print("ligand mesh contains self intersections");
-    std::exit(-1);
-  }
 
   {
     std::ofstream f("ligand.off");
