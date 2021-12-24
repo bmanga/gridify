@@ -24,7 +24,6 @@ struct hash<ligand> {
 std::unordered_set<ligand> discover_ligands(const pdb_frame &frame);
 
 std::vector<int> get_protein_residues_near_ligand(
-    const radius_matcher &radmatch,
     const pdb_frame &frame,
     const ligand &ligand,
     double distance,

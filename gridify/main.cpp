@@ -261,8 +261,7 @@ z    {:.3f}  {:.3f}
 
   auto checker = points_checker(poly);
   if (rm_atom_overlaps) {
-    auto radmatch = radius_matcher();
-    checker.enable_check_atoms(frame, radmatch, bounds, config.scale_radius);
+    checker.enable_check_atoms(frame, bounds, config.scale_radius);
   }
 
   auto grid_points =

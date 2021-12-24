@@ -18,7 +18,16 @@ void vlog(Ts &&...ts)
 }
 
 struct radius_matcher {
-  radius_matcher()
+ private:
+  struct private_token {
+  };
+
+ public:
+  static const radius_matcher& get() {
+    static auto rm = radius_matcher(private_token{});
+    return rm;
+  }
+  radius_matcher(private_token)
   {
     auto descriptor = std::ifstream("radii.json");
     if (!descriptor.good()) {

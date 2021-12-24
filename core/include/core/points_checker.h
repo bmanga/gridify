@@ -48,13 +48,13 @@ struct points_checker {
   }
 
   void enable_check_atoms(const pdb_frame &frame,
-                          const radius_matcher &radius_matcher,
                           const bounds &bs_bounds,
                           double radius_scale_factor = 1)
   {
     abt::tree3d atoms_tree;
     int cnt = 0;
 
+    const auto &radius_matcher = radius_matcher::get();
     for (const auto &atom : frame.atoms) {
       // TODO: use csv.
       float radius = radius_matcher.radius(atom) * radius_scale_factor;

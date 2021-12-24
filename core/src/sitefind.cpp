@@ -35,7 +35,6 @@ static bool has_intersections(const abt::tree3d &atoms,
 }
 
 std::vector<int> get_protein_residues_near_ligand(
-    const radius_matcher &radmatch,
     const pdb_frame &frame,
     const ligand &ligand,
     double distance,
@@ -44,6 +43,7 @@ std::vector<int> get_protein_residues_near_ligand(
 {
   std::unordered_map<int, abt::tree3d> residues;
   std::vector<abt::aabb3d> ligand_points;
+  const auto &radmatch = radius_matcher::get();
   for (const auto &atom : frame.atoms) {
     if (atom.chain == ligand.chain) {
       auto pos = atom.pos;

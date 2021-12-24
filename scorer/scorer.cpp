@@ -85,13 +85,14 @@ processed_data process_frame(const config &c, const pdb_frame &f, const CGAL::Su
   };
 }
 
-auto gen_ligand_geometry(const config &c, const pdb_frame &f, const radius_matcher &rad_matcher)
+auto gen_ligand_geometry(const config &c, const pdb_frame &f)
 {
   std::vector<Point_3> points;
   std::vector<double> radii;
+  const auto &radmatch = radius_matcher::get();
   for (const auto &a : f.atoms) {
     points.push_back(a.pos);
-    radii.push_back(rad_matcher.radius(a) * c.scale_radius);
+    radii.push_back(radmatch.radius(a) * c.scale_radius);
   }
 
   if (c.pca_align) {
@@ -105,8 +106,6 @@ int main(int argc, char *argv[])
   auto config = parse_cmd_line_settings("scorer",
                                         "calculate intersection between a ligand and a grid file",
                                         argc, argv, [](cxxopts::Options &){});
-
-  auto rad_match = radius_matcher();
 
   auto ligand_file = std::ifstream(config.ligand_file);
   auto grid_file = std::ifstream(config.grid_file);
@@ -127,7 +126,7 @@ int main(int argc, char *argv[])
     // TODO error.
   }
 
-  auto ligand_mesh = gen_ligand_geometry(config, frame, rad_match);
+  auto ligand_mesh = gen_ligand_geometry(config, frame);
 
   if (PMP::does_self_intersect(ligand_mesh)) {
     fmt::print("ligand mesh contains self intersections");

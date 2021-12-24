@@ -29,9 +29,6 @@ int main(int argc, char *argv[])
                                         argc, argv, [](cxxopts::Options &){});
 
   auto pdb_file = std::ifstream(config.pdb_file);
-  auto radii_file = std::ifstream("radii.json");
-
-  auto radmatch = radius_matcher();
 
   producer_consumer_queue queue;
   parse_pdb(pdb_file, queue);
@@ -43,7 +40,7 @@ int main(int argc, char *argv[])
     if (config.all_ligands) {
       auto all_ligands = discover_ligands(frame);
       for (const auto &ligand : all_ligands) {
-        auto resids = get_protein_residues_near_ligand(radmatch, frame, ligand, config.distance, config.ignore_radii);
+        auto resids = get_protein_residues_near_ligand(frame, ligand, config.distance, config.ignore_radii);
         std::cout << "[" << ligand.resid << " chain \"" << ligand.chain << "\"]: ";
         for (const auto &resid : resids) {
           std::cout << resid << " ";
@@ -52,7 +49,7 @@ int main(int argc, char *argv[])
       }
     }
     else {
-      auto resids = get_protein_residues_near_ligand(radmatch, frame, {config.chain, config.ligand}, config.distance, config.ignore_radii);
+      auto resids = get_protein_residues_near_ligand(frame, {config.chain, config.ligand}, config.distance, config.ignore_radii);
       for (const auto &resid : resids) {
           std::cout << resid << " ";
         }
