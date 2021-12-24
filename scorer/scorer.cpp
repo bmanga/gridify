@@ -2,6 +2,7 @@
 #include "core/processing.h"
 #include "core/radius.h"
 #include "core/pca.h"
+#include "core/score.h"
 #include <thread>
 #include <fstream>
 #include <cds/container/fcpriority_queue.h>
@@ -42,7 +43,7 @@ auto calc_intersection(const Surface_Mesh &ligand, Surface_Mesh &site) {
   return intersection;
 }
 
-processed_data process_frame(const config &c, const pdb_frame &f, const CGAL::Surface_mesh<Point_3> &ligand, double site_r)
+processed_data process_frame(const config &c, const pdb_frame &f, const Surface_Mesh &ligand, double site_r)
 {
   std::vector<Point_3> points;
   for (const auto &a : f.atoms) {
@@ -85,21 +86,7 @@ processed_data process_frame(const config &c, const pdb_frame &f, const CGAL::Su
   };
 }
 
-auto gen_ligand_geometry(const config &c, const pdb_frame &f)
-{
-  std::vector<Point_3> points;
-  std::vector<double> radii;
-  const auto &radmatch = radius_matcher::get();
-  for (const auto &a : f.atoms) {
-    points.push_back(a.pos);
-    radii.push_back(radmatch.radius(a) * c.scale_radius);
-  }
 
-  if (c.pca_align) {
-    points = pca_aligned_points(points);
-  }
-  return calc_surface_union_of_balls(points, radii);
-}
 
 int main(int argc, char *argv[])
 {
@@ -126,7 +113,7 @@ int main(int argc, char *argv[])
     // TODO error.
   }
 
-  auto ligand_mesh = gen_ligand_geometry(config, frame);
+  auto ligand_mesh = gen_ligand_geometry(frame, config.scale_radius, config.pca_align);
 
   if (PMP::does_self_intersect(ligand_mesh)) {
     fmt::print("ligand mesh contains self intersections");

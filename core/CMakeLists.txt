@@ -1,4 +1,4 @@
-add_library(core src/pdb.cpp src/pca.cpp src/grid.cpp "src/sitefind.cpp" "include/core/sitefind.h")
+add_library(core src/pdb.cpp src/pca.cpp src/grid.cpp "src/sitefind.cpp" "src/score.cpp" "include/core/sitefind.h" "include/core/score.h")
 target_include_directories(core PUBLIC include)
 find_package(CGAL REQUIRED)
 find_package(concurrentqueue REQUIRED)
