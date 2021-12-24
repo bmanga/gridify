@@ -17,3 +17,15 @@ void rm_low_connectivity_points(abt::tree3d &points,
 																double proximity_weight);
 
 void keep_largest_cluster_only(abt::tree3d &grid);
+
+std::vector<Point_3> generate_grid_points(const pdb_frame &frame,
+                                          const std::vector<int> &site_residues,
+                                          bool rm_atom_overlaps,
+                                          bool largest_cluster_only,
+                                          bool dense_packing,
+                                          double rm_lc_cutoff,
+                                          double scale_radius,
+                                          double spacing,
+                                          double point_radius,
+                                          double rm_lc_tangent_weight,
+                                          double rm_lc_proximity_weight);
