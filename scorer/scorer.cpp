@@ -22,7 +22,7 @@
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
-struct processed_data {
+struct site_ligand_stats {
   double site_volume;
   double ligand_volume;
   double intersection_volume;
@@ -43,18 +43,12 @@ auto calc_intersection(const Surface_Mesh &ligand, Surface_Mesh &site) {
   return intersection;
 }
 
-processed_data process_frame(const config &c, const pdb_frame &f, const Surface_Mesh &ligand, double site_r)
+site_ligand_stats calc_grid_ligand_stats(
+    const std::vector<Point_3> &grid_points,
+    const Surface_Mesh &ligand,
+    double site_r)
 {
-  std::vector<Point_3> points;
-  for (const auto &a : f.atoms) {
-    points.push_back(a.pos);
-  }
-
-  if (c.pca_align) {
-    points = pca_aligned_points(points);
-  }
-
-  auto site = calc_surface_union_of_balls(points, site_r);
+  auto site = calc_surface_union_of_balls(grid_points, site_r);
 
   {
     std::ofstream f ("site.off");
@@ -84,6 +78,23 @@ processed_data process_frame(const config &c, const pdb_frame &f, const Surface_
     .intersection_volume = intersection_vol,
     .union_volume = union_vol
   };
+}
+
+site_ligand_stats process_frame(const config &c,
+                                const pdb_frame &f,
+                                const Surface_Mesh &ligand_mesh,
+                                double grid_radius)
+{
+  std::vector<Point_3> points;
+  for (const auto &a : f.atoms) {
+    points.push_back(a.pos);
+  }
+
+  if (c.pca_align) {
+    points = pca_aligned_points(points);
+  }
+
+  return calc_grid_ligand_stats(points, ligand_mesh, grid_radius);
 }
 
 
@@ -128,7 +139,7 @@ int main(int argc, char *argv[])
 
   std::thread producer([&] {parse_pdb(grid_file, queue);});
 
-  processed_queue<processed_data> processed_frames;
+  processed_queue<site_ligand_stats> processed_frames;
 
   std::vector<std::thread> consumers;
   int num_consumers = 1;
@@ -142,7 +153,7 @@ int main(int argc, char *argv[])
 
   process_serialized_results(
       num_consumers, queue, processed_frames,
-      [&](int frame_idx, processed_data &data) {
+      [&](int frame_idx, site_ligand_stats &data) {
         fmt::print("-- writing frame {}\n", frame_idx);
         fmt::print("SITE VOLUME:         {:.3}\n", data.site_volume);
         fmt::print("LIGAND VOLUME:       {:.3}\n", data.ligand_volume);
