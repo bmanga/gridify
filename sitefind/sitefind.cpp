@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
   auto pdb_file = std::ifstream(config.pdb_file);
   auto radii_file = std::ifstream("radii.json");
 
-  auto radmatch = radius_matcher(radii_file, 1, config.distance / 2);
+  auto radmatch = radius_matcher();
 
   producer_consumer_queue queue;
   parse_pdb(pdb_file, queue);

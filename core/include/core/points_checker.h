@@ -49,14 +49,15 @@ struct points_checker {
 
   void enable_check_atoms(const pdb_frame &frame,
                           const radius_matcher &radius_matcher,
-                          const bounds &bs_bounds)
+                          const bounds &bs_bounds,
+                          double radius_scale_factor = 1)
   {
     abt::tree3d atoms_tree;
     int cnt = 0;
 
     for (const auto &atom : frame.atoms) {
       // TODO: use csv.
-      float radius = radius_matcher.radius(atom);
+      float radius = radius_matcher.radius(atom) * radius_scale_factor;
       if (radius == 0) {
         // Radius of 0 means the atom can be ignored.
         continue;

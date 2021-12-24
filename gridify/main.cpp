@@ -261,9 +261,8 @@ z    {:.3f}  {:.3f}
 
   auto checker = points_checker(poly);
   if (rm_atom_overlaps) {
-    auto radii_file = std::ifstream("radii.json");
-    auto radmatch = radius_matcher(radii_file, config.scale_radius);
-    checker.enable_check_atoms(frame, radmatch, bounds);
+    auto radmatch = radius_matcher();
+    checker.enable_check_atoms(frame, radmatch, bounds, config.scale_radius);
   }
 
   auto grid_points =

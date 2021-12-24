@@ -91,7 +91,7 @@ auto gen_ligand_geometry(const config &c, const pdb_frame &f, const radius_match
   std::vector<double> radii;
   for (const auto &a : f.atoms) {
     points.push_back(a.pos);
-    radii.push_back(rad_matcher.radius(a));
+    radii.push_back(rad_matcher.radius(a) * c.scale_radius);
   }
 
   if (c.pca_align) {
@@ -106,8 +106,7 @@ int main(int argc, char *argv[])
                                         "calculate intersection between a ligand and a grid file",
                                         argc, argv, [](cxxopts::Options &){});
 
-  auto radii_file = std::ifstream("radii.json");
-  auto rad_match = radius_matcher(radii_file, config.scale_radius);
+  auto rad_match = radius_matcher();
 
   auto ligand_file = std::ifstream(config.ligand_file);
   auto grid_file = std::ifstream(config.grid_file);

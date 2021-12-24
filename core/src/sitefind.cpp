@@ -47,8 +47,10 @@ std::vector<int> get_protein_residues_near_ligand(
   for (const auto &atom : frame.atoms) {
     if (atom.chain == ligand.chain) {
       auto pos = atom.pos;
-      double radius =
-          ignore_radii ? distance / 2 : radmatch.radius(atom);
+      double radius = distance / 2;
+      if (!ignore_radii) {
+        radius += radmatch.radius(atom);
+      }
       auto bb = abt::aabb3d::of_sphere({pos.x(), pos.y(), pos.z()}, radius);
       if (atom.kind == "ATOM") {
         residues[atom.residue_id].insert(bb);

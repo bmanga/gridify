@@ -1,7 +1,7 @@
 #ifndef GRIDIFY_RADIUS_H
 #define GRIDIFY_RADIUS_H
 
-#include <istream>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <fmt/printf.h>
 
@@ -18,10 +18,9 @@ void vlog(Ts &&...ts)
 }
 
 struct radius_matcher {
-  radius_matcher(std::istream &descriptor, double scale_factor, double constant_offset = 0):
-        scale_factor(scale_factor),
-        constant_offset(constant_offset)
+  radius_matcher()
   {
+    auto descriptor = std::ifstream("radii.json");
     if (!descriptor.good()) {
       fmt::print("WARN: no radius file found (radii.json).\n");
       radii["default"] = 2;
@@ -39,41 +38,39 @@ struct radius_matcher {
       atom.pop_back();
     }
 
-    auto vlog_radius = [&entry, &atom, scale_factor=this->scale_factor, constant_offset=this->constant_offset](const char *where, double radius) {
+    auto vlog_radius = [&entry, &atom](const char *where, double radius) {
       vlog(
-          "RADIUS - value for atom {} ({}.{}, using {}.{}, sf {}, co {}) "
+          "RADIUS - value for atom {} ({}.{}, using {}.{}) "
           "= {}\n",
-          entry.atom_id, entry.residue, entry.atom, where, atom, scale_factor, constant_offset, radius);
+          entry.atom_id, entry.residue, entry.atom, where, atom, radius);
     };
 
     if (radii.contains(resid)) {
       if (radii[resid].contains(atom)) {
-        auto radius = radii[resid][atom].get<double>() * scale_factor + constant_offset;
+        auto radius = radii[resid][atom].get<double>();
         vlog_radius("residue", radius);
         return radius;
       }
     }
     while (atom.size() > 0) {
       if (radii["defaults"].contains(atom)) {
-        auto radius = radii["defaults"][atom].get<double>() * scale_factor + constant_offset;
+        auto radius = radii["defaults"][atom].get<double>();
         vlog_radius("defaults", radius);
         return radius;
       }
       atom.pop_back();
     }
 
-    auto def = radii["default"].get<double>() * scale_factor + constant_offset;
+    auto def = radii["default"].get<double>();
     vlog(
         "WARN: RADIUS - no suitable radius found for atom {} ({}.{}): Using "
         "specified "
-        "default of {} (sf {}, co {}).\n",
-        entry.atom_id, entry.atom, entry.residue, def, scale_factor, constant_offset);
+        "default of {}.\n",
+        entry.atom_id, entry.atom, entry.residue, def);
     return def;
   }
 
   json radii;
-  double scale_factor;
-  double constant_offset;
 };
 
 #endif  // GRIDIFY_RADIUS_H
