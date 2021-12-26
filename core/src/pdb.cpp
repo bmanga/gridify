@@ -39,22 +39,39 @@ void parse_pdb(std::ifstream &ifs, FnOnFrame &&on_frame, FnOnDone &&on_done)
 
     iss >> start;
 
-    if (start != "ATOM" && start != "HETATM") {
+    bool starts_with_hetatm = start.starts_with("HETATM");
+
+    if (start != "ATOM" && !starts_with_hetatm) {
       continue;
     }
 
     std::string kind, atom, residue, chain;
-    kind = start;
     int residue_id;
     int atom_id;
+    if (starts_with_hetatm && start.length() != 6) {
+      kind = "HETATM";
+      atom_id = std::atoi(start.c_str() + 6);
+    }
+    else {
+      kind = start;
+      iss >> atom_id;
+    }
+
     // NOTE: We could read lines at specific offsets, but I think this is more
     // robust.
-    iss >> atom_id >> atom >> residue;
+    iss >> atom >> residue;
     iss >> residue_id;
     if (iss.fail()) {
       iss.clear();
       iss >> chain;
-      iss >> residue_id;
+      if (chain.length() > 1) {
+        // PDB doesn't have a spacing between chain and residue_id
+        residue_id = std::atoi(chain.c_str() + 1);
+        chain = chain[0];
+      }
+      else {
+        iss >> residue_id;
+      }
     }
 
     float x, y, z;
