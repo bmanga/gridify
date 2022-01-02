@@ -419,6 +419,9 @@ class tree {
     }
   }
 
+  aabb bounds() const { return m_nodes[m_root].bb; }
+
+
   //! Set the periodicity of the simulation box.
   /*! \param periodicity_
           Whether the system is periodic in each dimension.
