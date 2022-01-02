@@ -213,8 +213,12 @@ processed_data process_frame(const config &config, const pdb_frame &frame)
   fmt::print("-- Processing frame {}\n", frame.frame_idx);
   auto result = processed_data{};
 
-  auto grid_points = generate_grid_points(
-      frame, config.site_residues, config.rm_atom_overlaps,
+  const auto &protein = frame.atoms;
+
+  auto site = get_binding_site(protein, config.site_residues);
+
+  auto grid_points = gen_site_grid(
+      protein, site, config.rm_atom_overlaps,
       config.largest_cluster_only, config.dense_packing, config.rm_lc_cutoff,
       config.scale_radius, config.spacing, config.point_radius,
       config.rm_lc_tangent_weight, config.rm_lc_proximity_weight);

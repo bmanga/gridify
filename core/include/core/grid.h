@@ -3,29 +3,26 @@
 #include "core/aabb_tree.hpp"
 #include "core/points_checker.h"
 
-std::vector<Point_3> gen_grid(const points_checker &checker,
-                              const Surface_Mesh &poly,
-                              const bounds &bounds,
-                              float spacing,
-                              float pt_radius,
-                              bool dense_packing);
+struct binding_site {
+  std::vector<pdb_atom_entry> atoms;
+  bounds bounds;
+};
 
-void rm_low_connectivity_points(abt::tree3d &points,
-                                double dist_cutoff,
-                                double min_conn_score,
-																double tangent_weight,
-																double proximity_weight);
+binding_site get_binding_site(const std::vector<pdb_atom_entry> &protein,
+                              const std::vector<int> &residues);
 
-void keep_largest_cluster_only(abt::tree3d &grid);
+std::vector<Point_3> surface_only(const std::vector<Point_3> &points,
+                                  double radius);
 
-std::vector<Point_3> generate_grid_points(const pdb_frame &frame,
-                                          const std::vector<int> &site_residues,
-                                          bool rm_atom_overlaps,
-                                          bool largest_cluster_only,
-                                          bool dense_packing,
-                                          double rm_lc_cutoff,
-                                          double scale_radius,
-                                          double spacing,
-                                          double point_radius,
-                                          double rm_lc_tangent_weight,
-                                          double rm_lc_proximity_weight);
+std::vector<Point_3> gen_site_grid(
+    const std::vector<pdb_atom_entry> &protein,
+    const binding_site &site,
+    bool rm_atom_overlaps,
+    bool largest_cluster_only,
+    bool dense_packing,
+    double rm_lc_cutoff,
+    double scale_radius,
+    double spacing,
+    double point_radius,
+    double rm_lc_tangent_weight,
+    double rm_lc_proximity_weight);
