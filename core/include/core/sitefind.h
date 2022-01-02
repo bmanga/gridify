@@ -1,5 +1,5 @@
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 #include "core/pdb.h"
 #include "core/radius.h"
 
@@ -21,10 +21,17 @@ struct hash<ligand> {
 };
 }  // namespace std
 
-std::unordered_set<ligand> discover_ligands(const pdb_frame &frame);
+std::unordered_map<ligand, std::vector<pdb_atom_entry>> discover_ligands(
+    const pdb_frame &frame);
 
 std::vector<int> get_protein_residues_near_ligand(
     const pdb_frame &frame,
     const ligand &ligand,
+    double distance,
+    bool ignore_radii);
+
+std::vector<int> get_protein_residues_near_ligand(
+    const std::vector<pdb_atom_entry> &protein,
+    const std::vector<pdb_atom_entry> &ligand,
     double distance,
     bool ignore_radii);

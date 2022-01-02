@@ -39,8 +39,8 @@ int main(int argc, char *argv[])
     std::cout << "New frame" << std::endl;
     if (config.all_ligands) {
       auto all_ligands = discover_ligands(frame);
-      for (const auto &ligand : all_ligands) {
-        auto resids = get_protein_residues_near_ligand(frame, ligand, config.distance, config.ignore_radii);
+      for (const auto &[ligand, ligand_points] : all_ligands) {
+        auto resids = get_protein_residues_near_ligand(frame.atoms, ligand_points, config.distance, config.ignore_radii);
         std::cout << "[" << ligand.resid << " chain \"" << ligand.chain << "\"]: ";
         for (const auto &resid : resids) {
           std::cout << resid << " ";

@@ -2,13 +2,13 @@
 #include "core/aabb_tree.hpp"
 #include "core/sitefind.h"
 
-std::unordered_set<ligand> discover_ligands(const pdb_frame &frame)
+std::unordered_map<ligand, std::vector<pdb_atom_entry>> discover_ligands(const pdb_frame &frame)
 {
-  std::unordered_set<ligand> ligands;
+  std::unordered_map<ligand, std::vector<pdb_atom_entry>> ligands;
 
   for (const auto &atom : frame.atoms) {
     if (atom.kind == "HETATM" && atom.residue != "HOH") {
-      ligands.insert({atom.chain, atom.residue});
+      ligands[{atom.chain, atom.residue}].push_back(atom);
     }
   }
   return ligands;
@@ -59,6 +59,45 @@ std::vector<int> get_protein_residues_near_ligand(
         ligand_points.push_back(bb);
       }
     }
+  }
+
+  std::vector<int> intersecting_residues;
+  for (const auto &[id, atoms] : residues) {
+    if (has_intersections(atoms, ligand_points)) {
+      intersecting_residues.push_back(id);
+    }
+  }
+  return intersecting_residues;
+}
+
+std::vector<int> get_protein_residues_near_ligand(
+    const std::vector<pdb_atom_entry> &protein,
+    const std::vector<pdb_atom_entry> &ligand,
+    double distance,
+    bool ignore_radii)
+{
+  std::unordered_map<int, abt::tree3d> residues;
+  std::vector<abt::aabb3d> ligand_points;
+  const auto &radmatch = radius_matcher::get();
+
+  for (const auto &atom : protein) {
+    auto pos = atom.pos;
+    double radius = distance / 2;
+    if (!ignore_radii) {
+      radius += radmatch.radius(atom);
+    }
+    auto bb = abt::aabb3d::of_sphere({pos.x(), pos.y(), pos.z()}, radius);
+    residues[atom.residue_id].insert(bb);
+  }
+
+  for (const auto &atom : ligand) {
+    auto pos = atom.pos;
+    double radius = distance / 2;
+    if (!ignore_radii) {
+      radius += radmatch.radius(atom);
+    }
+    auto bb = abt::aabb3d::of_sphere({pos.x(), pos.y(), pos.z()}, radius);
+    ligand_points.push_back(bb);
   }
 
   std::vector<int> intersecting_residues;
