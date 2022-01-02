@@ -24,4 +24,3 @@ add_subdirectory ("gridify")
 add_subdirectory(scorer)
 add_subdirectory(sitefind)
 add_subdirectory(python)
-
