@@ -130,3 +130,17 @@ double parse_pdb_gridify_spacing(std::ifstream &ifs) {
   }
   return -1;
 }
+
+bool parse_pdb_gridify_dense_packing(std::ifstream &ifs)
+{
+  std::string str;
+  while (std::getline(ifs, str)) {
+    if (!str.starts_with("REMARK 100")) {
+      break;
+    }
+    if (str.starts_with("REMARK 100 dense_packing")) {
+      return str[25] == 't';
+    }
+  }
+  return false;
+}

@@ -8,6 +8,15 @@ struct binding_site {
   bounds bounds;
 };
 
+inline double calc_grid_volume(double radius, int num_points, bool is_packed)
+{
+  double vol = std::pow(radius * 2, 3) * num_points;
+  if (is_packed) {
+    vol /= 1.414213;  // sqrt(2)
+  }
+  return vol;
+}
+
 binding_site get_binding_site(const std::vector<pdb_atom_entry> &protein,
                               const std::vector<int> &residues);
 

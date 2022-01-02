@@ -1,3 +1,5 @@
+#ifndef POINTS_CHECKER_H
+#define POINTS_CHECKER_H
 #include "core/common.h"
 #include "core/aabb_tree.hpp"
 #include "core/pdb.h"
@@ -71,3 +73,5 @@ struct points_checker {
   std::optional<abt::tree3d> opt_atoms_tree;
   Point_inside inside_tester;
 };
+
+#endif

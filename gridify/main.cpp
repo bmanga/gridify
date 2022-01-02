@@ -186,25 +186,11 @@ struct fmt::formatter<std::vector<int>> {
   }
 };
 
-double calc_site_volume(const config &c, const std::vector<Point_3> &points)
-{
-  constexpr double PI = 3.14159265359;
-  double sphere_vol = 4 / 3.0 * PI * std::pow((c.spacing / 2.0), 3);
-  double density = PI / 6;
-  if (c.dense_packing) {
-    // See https://en.wikipedia.org/wiki/Close-packing_of_equal_spheres
-    density = 0.74048;
-  }
-  double volume = sphere_vol / density * points.size();
-  return volume;
-}
-
-
 site_properties calc_site_properties(const config &c,
                                      const std::vector<Point_3> &site_points,
                                      const std::vector<Point_3> &pca_points)
 {
-  return {calc_site_volume(c, site_points), get_bounds(site_points),
+  return {calc_grid_volume(c.point_radius, site_points.size(), c.dense_packing), get_bounds(site_points),
           get_bounds(pca_points)};
 }
 

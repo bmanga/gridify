@@ -33,4 +33,6 @@ std::vector<pdb_frame> parse_pdb(const std::string &file);
 
 double parse_pdb_gridify_spacing(std::ifstream &ifs);
 
+bool parse_pdb_gridify_dense_packing(std::ifstream &ifs);
+
 #endif  // GRIDIFY_PDB_H

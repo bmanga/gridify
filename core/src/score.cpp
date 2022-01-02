@@ -1,18 +1,23 @@
 #include "core/score.h"
 #include "core/radius.h"
 #include "core/pca.h"
+#include "core/points_checker.h"
+#include "core/grid.h"
 
 #include <vector>
 #include <list>
+#include <sstream>
+#include <algorithm>
 
 #include <CGAL/Union_of_balls_3.h>
 #include <CGAL/Polyhedron_3.h>
 #include <CGAL/mesh_union_of_balls_3.h>
-#include <CGAL/Surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/repair_self_intersections.h>
 #include <CGAL/Polygon_mesh_processing/self_intersections.h>
-#include <CGAL/Polygon_mesh_processing/corefinement.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
+
+
+
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
@@ -42,89 +47,71 @@ Surface_Mesh calc_surface_union_of_balls(const std::list<Weighted_point> &l)
 }
 
 Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points,
-                                         double radius)
-{
-  std::list<Weighted_point> l;
-  for (const auto &p : points) {
-    l.push_front(Weighted_point(Bare_point(p), radius));
-  }
-
-  return calc_surface_union_of_balls(l);
-}
-
-Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points,
                                          const std::vector<double> &radii)
 {
   std::list<Weighted_point> l;
   for (int j = 0; j < points.size(); ++j) {
     const auto &p = points[j];
     double radius = radii[j];
-    l.push_front(Weighted_point(Bare_point(p), radius));
+    l.push_front(Weighted_point(Bare_point(p), radius * radius));
   }
 
   return calc_surface_union_of_balls(l);
 }
 }
 
+Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points,
+                                         double radius)
+{
+  std::list<Weighted_point> l;
+  for (const auto &p : points) {
+    l.push_front(Weighted_point(Bare_point(p), radius * radius));
+  }
 
-Surface_Mesh gen_ligand_geometry(const pdb_frame &f,
-                         double scale_radius,
-                         bool pca_align)
+  return calc_surface_union_of_balls(l);
+}
+
+Surface_Mesh gen_ligand_geometry(const std::vector<pdb_atom_entry> &ligand,
+                                 double scale_radius,
+                                 bool pca_align)
 {
   std::vector<Point_3> points;
   std::vector<double> radii;
   const auto &radmatch = radius_matcher::get();
-  for (const auto &a : f.atoms) {
+  for (const auto &a : ligand) {
     points.push_back(a.pos);
-    radii.push_back(radmatch.radius(a) * scale_radius);
+    auto radius = radmatch.radius(a) * scale_radius;
+    radii.push_back(radius);
   }
-
   if (pca_align) {
     points = pca_aligned_points(points);
   }
   return calc_surface_union_of_balls(points, radii);
 }
 
-static auto calc_intersection(const Surface_Mesh &ligand, Surface_Mesh &site)
+site_ligand_stats calc_grid_ligand_stats(const std::vector<Point_3> &grid,
+                                         const Surface_Mesh &ligand_geom,
+                                         double grid_radius,
+                                         bool is_grid_packed)
 {
-  Surface_Mesh intersection;
-  auto ligand_cpy = ligand;
-  PMP::corefine_and_compute_intersection(ligand_cpy, site, intersection);
 
-  return intersection;
-}
+  auto checker = points_checker(ligand_geom);
 
-site_ligand_stats calc_grid_ligand_stats(
-    const std::vector<Point_3> &grid_points,
-    const Surface_Mesh &ligand,
-    double site_r)
-{
-  auto site = calc_surface_union_of_balls(grid_points, site_r);
+  auto is_inside_ligand = [&](const Point_3 &pt) {
+    return checker.is_inside_ch(pt);
+  };
 
-  {
-    std::ofstream f("site.off");
-    f << site;
-    f.close();
-  }
+  auto cnt_intersections =
+      std::count_if(grid.begin(), grid.end(), is_inside_ligand);
 
-  if (PMP::does_self_intersect(site)) {
-    fmt::print("site mesh contains self intersections");
-    std::exit(-1);
-  }
+ 
+  auto ligand_vol = PMP::volume(ligand_geom);
+  auto site_vol = calc_grid_volume(grid_radius, grid.size(), is_grid_packed);
+  auto intersect_vol = calc_grid_volume(grid_radius, cnt_intersections, is_grid_packed);
+  auto union_vol = ligand_vol + site_vol - intersect_vol;
 
-  auto intersection = calc_intersection(ligand, site);
-  {
-    std::ofstream f("intersection.off");
-    f << intersection;
-    f.close();
-  }
-  auto intersection_vol = PMP::volume(intersection);
-  auto site_vol = PMP::volume(site);
-  auto ligand_vol = PMP::volume(ligand);
-  auto union_vol = ligand_vol + site_vol - intersection_vol;
-
-  return {.site_volume = site_vol,
+    return {.site_volume = site_vol,
           .ligand_volume = ligand_vol,
-          .intersection_volume = intersection_vol,
-          .union_volume = union_vol};
+          .intersection_volume = intersect_vol,
+          .union_volume = union_vol };
 }

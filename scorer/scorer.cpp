@@ -24,7 +24,8 @@ bool g_verbose = true;
 site_ligand_stats process_frame(const config &c,
                                 const pdb_frame &f,
                                 const Surface_Mesh &ligand_mesh,
-                                double grid_radius)
+                                double grid_radius,
+  bool grid_is_packed)
 {
   std::vector<Point_3> points;
   for (const auto &a : f.atoms) {
@@ -35,7 +36,8 @@ site_ligand_stats process_frame(const config &c,
     points = pca_aligned_points(points);
   }
 
-  return calc_grid_ligand_stats(points, ligand_mesh, grid_radius);
+  return calc_grid_ligand_stats(points, ligand_mesh, grid_radius,
+                                grid_is_packed);
 }
 
 
@@ -50,7 +52,9 @@ int main(int argc, char *argv[])
   auto grid_file = std::ifstream(config.grid_file);
 
   double grid_radius = parse_pdb_gridify_spacing(grid_file);
+  grid_file.seekg(0);
 
+  bool grid_is_packed = parse_pdb_gridify_dense_packing(grid_file);
   grid_file.seekg(0);
 
   producer_consumer_queue queue_ligand, queue;
@@ -65,7 +69,7 @@ int main(int argc, char *argv[])
     // TODO error.
   }
 
-  auto ligand_mesh = gen_ligand_geometry(frame, config.scale_radius, config.pca_align);
+  auto ligand_mesh = gen_ligand_geometry(frame.atoms, config.scale_radius, config.pca_align);
 
   {
     std::ofstream f("ligand.off");
@@ -82,7 +86,7 @@ int main(int argc, char *argv[])
   for (int j = 0; j < num_consumers; ++j) {
     consumers.emplace_back(process_frame_loop(num_consumers, queue, processed_frames,
                                               [&](const pdb_frame &frame) {
-                                                return process_frame(config, frame, ligand_mesh, grid_radius);
+                                                return process_frame(config, frame, ligand_mesh, grid_radius, grid_is_packed);
                                               }));
   }
 
