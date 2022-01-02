@@ -212,7 +212,7 @@ z    {:.3f}  {:.3f}
 
   auto checker = points_checker(poly);
   if (rm_atom_overlaps) {
-    checker.enable_check_atoms(frame, bounds, scale_radius);
+    checker.enable_check_atoms(protein, scale_radius);
   }
 
   auto grid_points =

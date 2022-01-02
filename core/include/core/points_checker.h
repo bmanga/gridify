@@ -47,15 +47,14 @@ struct points_checker {
     return no_intersections;
   }
 
-  void enable_check_atoms(const pdb_frame &frame,
-                          const bounds &bs_bounds,
+  void enable_check_atoms(const std::vector<pdb_atom_entry> &atoms,
                           double radius_scale_factor = 1)
   {
     abt::tree3d atoms_tree;
     int cnt = 0;
 
     const auto &radius_matcher = radius_matcher::get();
-    for (const auto &atom : frame.atoms) {
+    for (const auto &atom : atoms) {
       // TODO: use csv.
       float radius = radius_matcher.radius(atom) * radius_scale_factor;
       if (radius == 0) {
