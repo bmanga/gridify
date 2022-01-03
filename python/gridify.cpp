@@ -42,7 +42,8 @@ Surface_Mesh calc_surface_union_of_balls(const std::vector<Point_3> &points,
   py::class_<pdb_atom_entry>(m, "pdb_atom_entry")
       .def_readonly("pos", &pdb_atom_entry::pos)
       .def_readonly("kind", &pdb_atom_entry::kind)
-  .def_readonly("chain", &pdb_atom_entry::chain);
+      .def_readonly("chain", &pdb_atom_entry::chain)
+      .def_readonly("residue", &pdb_atom_entry::residue);
 
   py::class_<pdb_frame>(m, "pdb_frame")
       .def_readwrite("atoms", &pdb_frame::atoms);
