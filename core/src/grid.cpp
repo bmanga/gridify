@@ -174,8 +174,12 @@ static void visit_connected_components(const abt::tree3d &tree, Fn &&fn)
 
 static void keep_largest_cluster_only(abt::tree3d &grid)
 {
-  std::vector<std::vector<unsigned>> groups(grid.size());
+  std::vector<std::vector<unsigned>> groups;
+  groups.reserve(5);
   visit_connected_components(grid, [&](unsigned group_id, unsigned node_id) {
+    if (group_id <= groups.size()) {
+      groups.resize(group_id + 1);
+    }
     groups[group_id].push_back(node_id);
   });
   auto biggest_group_it = std::max_element(
