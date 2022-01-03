@@ -144,15 +144,15 @@ static void dfs_search(unsigned node_id,
                        unsigned group,
                        Fn &&fn)
 {
-  std::stack<unsigned> unvisited_ids;
-  unvisited_ids.push(node_id);
+  std::unordered_set<unsigned> unvisited_ids;
+  unvisited_ids.insert(node_id);
   while (!unvisited_ids.empty()) {
-    auto unvisited_id = unvisited_ids.top();
-    unvisited_ids.pop();
+    auto unvisited_id = *unvisited_ids.begin();
+    unvisited_ids.erase(unvisited_ids.begin());
     visited.insert(unvisited_id);
     tree.visit_overlaps(tree.get_aabb(unvisited_id), [&](unsigned id) {
       if (visited.count(id) == 0) {
-        unvisited_ids.push(id);
+        unvisited_ids.insert(id);
       }
     });
     std::forward<Fn>(fn)(group, unvisited_id);
