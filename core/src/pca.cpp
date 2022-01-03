@@ -22,6 +22,9 @@ static auto view_as_eigen_mat(std::vector<Point_3> &points)
 
 std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points)
 {
+  if (points.empty()) {
+    return {};
+  }
   const auto m = view_as_eigen_mat(points);
   auto result = std::vector<Point_3>(points.size());
   auto res_eigen = view_as_eigen_mat(result);
