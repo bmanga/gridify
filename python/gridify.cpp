@@ -1,3 +1,7 @@
+#if _MSC_VER >= 1930
+// Workaround for pybind11 and vs22 bug.
+#include <corecrt.h>
+#endif
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <fstream>
