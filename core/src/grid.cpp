@@ -290,6 +290,9 @@ std::vector<Point_3> gen_site_grid(
     double rm_lc_tangent_weight,
     double rm_lc_proximity_weight)
 {
+  if (site.atoms.empty()) {
+    return {};
+  }
   Surface_Mesh poly;
   CGAL::convex_hull_3(point_iterator(site.atoms.begin()),
                       point_iterator(site.atoms.end()), poly);

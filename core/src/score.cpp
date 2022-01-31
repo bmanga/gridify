@@ -75,6 +75,9 @@ Surface_Mesh gen_ligand_geometry(const std::vector<pdb_atom_entry> &ligand,
                                  double scale_radius,
                                  bool pca_align)
 {
+  if (ligand.empty()) {
+    return {};
+  }
   std::vector<Point_3> points;
   std::vector<double> radii;
   const auto &radmatch = radius_matcher::get();
