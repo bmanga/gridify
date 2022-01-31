@@ -4,7 +4,7 @@
 
 static std::vector<Point_3> get_grid_points(const Surface_Mesh &poly,
                                             const points_checker &checker,
-                                            const bounds &bounds,
+                                            const bbox_bounds &bounds,
                                             float spacing_x,
                                             float spacing_y,
                                             float spacing_z,
@@ -31,7 +31,7 @@ static std::vector<Point_3> get_grid_points(const Surface_Mesh &poly,
 
 static std::vector<Point_3> gen_grid(const points_checker &checker,
                                      const Surface_Mesh &poly,
-                                     const bounds &bounds,
+                                     const bbox_bounds &bounds,
                                      float spacing,
                                      float pt_radius,
                                      bool dense_packing)
@@ -199,7 +199,7 @@ binding_site get_binding_site(const std::vector<pdb_atom_entry> &protein,
                               const std::vector<int> &residues)
 {
   std::vector<pdb_atom_entry> site_atoms;
-  bounds bounds;
+  bbox_bounds bounds;
 
   struct Comp {
     bool operator()(const pdb_atom_entry &s, int i) const

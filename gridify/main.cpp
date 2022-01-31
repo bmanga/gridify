@@ -37,8 +37,8 @@
 
 struct site_properties {
   double volume;
-  bounds site_bounds;
-  bounds pca_bounds;
+  bbox_bounds site_bounds;
+  bbox_bounds pca_bounds;
 };
 
 struct processed_data {

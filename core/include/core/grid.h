@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vector>
 #include "core/common.h"
 #include "core/aabb_tree.hpp"
@@ -5,7 +7,7 @@
 
 struct binding_site {
   std::vector<pdb_atom_entry> atoms;
-  bounds bounds;
+  bbox_bounds bounds;
 };
 
 inline double calc_grid_volume(double radius, int num_points, bool is_packed)

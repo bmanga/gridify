@@ -41,7 +41,7 @@ std::vector<Point_3> pca_aligned_points(const std::vector<Point_3> &points)
   return result;
 }
 
-bounds get_bounds(const std::vector<Point_3>& points) {
+bbox_bounds get_bounds(const std::vector<Point_3>& points) {
   auto mat = view_as_eigen_mat(points);
   auto cols = mat.colwise();
   auto mins = cols.minCoeff();

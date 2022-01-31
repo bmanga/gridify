@@ -22,7 +22,7 @@ using Point_inside = CGAL::Side_of_triangle_mesh<Surface_Mesh, K>;
 
 extern bool g_verbose;
 
-struct bounds {
+struct bbox_bounds {
   static constexpr std::pair<float, float> INIT = {
       std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest()};
 
