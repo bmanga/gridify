@@ -129,6 +129,11 @@ def parse_pdb_and_get_stats(prot_name, ligand_chain, ligand_resid):
 				write_pdb(os.path.join(base_path, f"option_{idx}.pdb"), grid)
 			writer.writerow([idx, stats.site_volume, stats.ligand_volume, stats.intersection_volume, stats.union_volume])
 
+def wrap(row):
+        if len(row) == 0:
+                return
+        prot_name, chain, resid = row
+        parse_pdb_and_get_stats(prot_name, chain, resid)
 
 def main():
 	i = input("Program init... Click [ENTER] to continue")
